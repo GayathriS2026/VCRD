@@ -28,7 +28,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.vcrd.dto.InvoiceDtos.DocumentResponse;
+import com.vcrd.dto.ExtractionDtos.VerificationResult;
 import com.vcrd.dto.InvoiceDtos.InvoiceRequest;
+import com.vcrd.service.InvoiceVerificationService;
 import com.vcrd.dto.InvoiceDtos.InvoiceResponse;
 import com.vcrd.dto.InvoiceDtos.InvoiceSummary;
 import com.vcrd.service.InvoiceService.StoredDocument;
@@ -40,9 +42,11 @@ import jakarta.validation.Valid;
 public class InvoiceController {
 
     private final InvoiceService invoiceService;
+    private final InvoiceVerificationService verificationService;
 
-    public InvoiceController(InvoiceService invoiceService) {
+    public InvoiceController(InvoiceService invoiceService, InvoiceVerificationService verificationService) {
         this.invoiceService = invoiceService;
+        this.verificationService = verificationService;
     }
 
     @PostMapping
@@ -74,6 +78,12 @@ public class InvoiceController {
     @ResponseStatus(HttpStatus.CREATED)
     public DocumentResponse upload(@PathVariable UUID id, @RequestPart("file") MultipartFile file) {
         return invoiceService.uploadDocument(id, file);
+    }
+
+    /** Extracts fields from the document (PDF text, or OCR for scans) and compares them with the invoice. */
+    @PostMapping("/{id}/documents/{documentId}/verify")
+    public VerificationResult verify(@PathVariable UUID id, @PathVariable UUID documentId) {
+        return verificationService.verify(id, documentId);
     }
 
     @GetMapping("/{id}/documents/{documentId}/content")

@@ -21,6 +21,11 @@ vcrd:
     expiry-minutes: 480
   storage:
     root: ${VCRD_STORAGE_ROOT:./data/documents}
+  ocr:
+    # Folder containing <language>.traineddata (e.g. C:/tessdata). Blank = OCR disabled;
+    # digital PDFs still work, scanned ones are rejected with OCR_NOT_CONFIGURED.
+    tessdata-path: ${VCRD_TESSDATA_PATH:}
+    language: eng
   sap:
     # mock = in-memory sample POs. Real gateway will be added once the SAP interface is confirmed.
     mode: mock

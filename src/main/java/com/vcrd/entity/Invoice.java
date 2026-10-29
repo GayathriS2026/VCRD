@@ -2,6 +2,8 @@ package com.vcrd.entity;
 
 import com.vcrd.service.InvoiceStateChanger;
 import com.vcrd.constants.InvoiceStatus;
+import com.vcrd.constants.MatchStatus;
+import com.vcrd.constants.SapStatus;
 import com.vcrd.service.WorkflowService;
 
 import java.math.BigDecimal;
@@ -105,6 +107,19 @@ public class Invoice {
     private BigDecimal clearedAmount;
 
     @Enumerated(EnumType.STRING)
+    private SapStatus sapStatus;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private MatchStatus matchStatus = MatchStatus.PENDING;
+
+    private Instant matchCheckedAt;
+
+    /** JSON of the last VerificationResult (extracted values, mismatches, warnings). */
+    @Column(columnDefinition = "TEXT")
+    private String matchDetails;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private InvoiceStatus status = InvoiceStatus.DRAFT;
 
@@ -170,6 +185,18 @@ public class Invoice {
         this.parkChangedBySapId = parkChangedBySapId;
         this.parkChangedByName = parkChangedByName;
         this.parkChangedAt = parkChangedAt;
+        touch();
+    }
+
+    public void recordMatch(MatchStatus matchStatus, String matchDetails) {
+        this.matchStatus = matchStatus;
+        this.matchDetails = matchDetails;
+        this.matchCheckedAt = Instant.now();
+        touch();
+    }
+
+    public void changeSapStatus(SapStatus sapStatus) {
+        this.sapStatus = sapStatus;
         touch();
     }
 
@@ -312,6 +339,22 @@ public class Invoice {
 
     public BigDecimal getClearedAmount() {
         return clearedAmount;
+    }
+
+    public SapStatus getSapStatus() {
+        return sapStatus;
+    }
+
+    public MatchStatus getMatchStatus() {
+        return matchStatus;
+    }
+
+    public Instant getMatchCheckedAt() {
+        return matchCheckedAt;
+    }
+
+    public String getMatchDetails() {
+        return matchDetails;
     }
 
     public InvoiceStatus getStatus() {
