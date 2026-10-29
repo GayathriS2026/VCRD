@@ -1,0 +1,55 @@
+spring:
+  application:
+    name: vcrd-backend
+  profiles:
+    active: h2
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 25MB
+
+vcrd:
+  jwt:
+    # Dev-only secret (min 32 chars). Override with VCRD_JWT_SECRET in any shared environment.
+    secret: ${VCRD_JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+    expiry-minutes: 480
+  storage:
+    root: ${VCRD_STORAGE_ROOT:./data/documents}
+  sap:
+    # mock = in-memory sample POs. Real gateway will be added once the SAP interface is confirmed.
+    mode: mock
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+
+---
+# Local development without installing a database. Data persists in ./data
+spring:
+  config:
+    activate:
+      on-profile: h2
+  datasource:
+    url: jdbc:h2:file:./data/vcrd-db;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+---
+spring:
+  config:
+    activate:
+      on-profile: postgres
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/vcrd}
+    username: ${DB_USERNAME:vcrd}
+    password: ${DB_PASSWORD:vcrd}
