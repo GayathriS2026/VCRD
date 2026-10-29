@@ -23,6 +23,7 @@ import com.vcrd.component.InvoiceTextReader.ReadText;
 import com.vcrd.constants.MatchStatus;
 import com.vcrd.dto.ExtractionDtos.ExtractedInvoice;
 import com.vcrd.dto.ExtractionDtos.ExtractedLine;
+import com.vcrd.dto.ExtractionDtos.TextSource;
 import com.vcrd.entity.InvoiceLine;
 import com.vcrd.dto.ExtractionDtos.FieldMismatch;
 import com.vcrd.dto.ExtractionDtos.VerificationResult;
@@ -91,7 +92,7 @@ public class InvoiceVerificationService {
             result = extractAndCompare(invoice, latest);
         } catch (BusinessException e) {
             error = e.getMessage();
-            result = new VerificationResult(MatchStatus.NEEDS_REVIEW, null, List.of());
+            result = new VerificationResult(MatchStatus.NEEDS_REVIEW, null, List.of(), List.of());
         }
         invoice.recordMatch(result.matchStatus(), toJson(result));
         Map<String, Object> details = new java.util.LinkedHashMap<>();
@@ -107,18 +108,77 @@ public class InvoiceVerificationService {
     private VerificationResult extractAndCompare(Invoice invoice, InvoiceDocument document) {
         ReadText text = textReader.read(readBytes(document), document.getContentType());
         ExtractedInvoice extracted = parser.parse(text.text(), text.source());
-        return compare(invoice, extracted);
+        return compare(invoice, extracted, DocumentText.of(text.text()));
     }
 
-    static VerificationResult compare(Invoice invoice, ExtractedInvoice x) {
+    /**
+     * Searchable form of the document text, used to confirm a value the extractor could not attribute
+     * to a label (common with OCR of table cells). Only used when nothing was extracted for that field:
+     * a different extracted value is always reported as a mismatch, never overridden by a text hit.
+     */
+    record DocumentText(String compact) {
+
+        static DocumentText of(String text) {
+            return new DocumentText(normalize(text));
+        }
+
+        boolean containsInvoiceNo(String invoiceNo) {
+            String n = normalize(invoiceNo);
+            return n.length() >= 4 && compact.contains(n); // short numbers like "16" would match anywhere
+        }
+
+        boolean containsAmount(BigDecimal amount) {
+            if (amount == null || amount.signum() == 0) {
+                return false;
+            }
+            BigDecimal a = amount.setScale(2, java.math.RoundingMode.HALF_UP);
+            return compact.contains(normalize(indian(a))) || compact.contains(normalize(western(a)))
+                    || compact.contains(a.toPlainString());
+        }
+
+        boolean containsPoNumber(String poNumber) {
+            return compact.contains(normalize(poNumber));
+        }
+
+        private static String western(BigDecimal a) {
+            return new java.text.DecimalFormat("#,##0.00").format(a);
+        }
+
+        /** 1,00,000.00 style grouping. */
+        private static String indian(BigDecimal a) {
+            String plain = a.toPlainString();
+            String whole = plain.substring(0, plain.indexOf('.'));
+            String decimals = plain.substring(plain.indexOf('.'));
+            if (whole.length() <= 3) {
+                return plain;
+            }
+            String last3 = whole.substring(whole.length() - 3);
+            String rest = whole.substring(0, whole.length() - 3).replaceAll("\\B(?=(\\d{2})+$)", ",");
+            return rest + "," + last3 + decimals;
+        }
+    }
+
+    static VerificationResult compare(Invoice invoice, ExtractedInvoice x, DocumentText text) {
         List<FieldMismatch> mismatches = new ArrayList<>();
+        List<String> confirmedByText = new ArrayList<>();
         boolean missing = false;
 
         String enteredNo = invoice.getVendorInvoiceNo();
         if (x.vendorInvoiceNo() == null) {
-            missing = true;
+            if (text.containsInvoiceNo(enteredNo)) {
+                confirmedByText.add("vendorInvoiceNo");
+            } else {
+                missing = true;
+            }
         } else if (!normalize(enteredNo).equals(normalize(x.vendorInvoiceNo()))) {
             mismatches.add(new FieldMismatch("vendorInvoiceNo", enteredNo, x.vendorInvoiceNo()));
+        }
+
+        String poNumber = invoice.getPurchaseOrder().getPoNumber();
+        if (!x.poReferences().isEmpty() && !x.poReferences().contains(poNumber)) {
+            mismatches.add(new FieldMismatch("poNumber", poNumber, String.join(", ", x.poReferences())));
+        } else if (x.poReferences().isEmpty() && !text.containsPoNumber(poNumber)) {
+            missing = true;
         }
 
         if (x.invoiceDate() == null) {
@@ -132,52 +192,63 @@ public class InvoiceVerificationService {
             mismatches.add(new FieldMismatch("vendorGstin", poGstin, String.join(", ", x.gstins())));
         }
 
-        missing |= money("baseAmount", invoice.getBaseAmount(), x.baseAmount(), mismatches);
-        missing |= money("cgstAmount", invoice.getCgstAmount(), x.cgstAmount(), mismatches);
-        missing |= money("sgstAmount", invoice.getSgstAmount(), x.sgstAmount(), mismatches);
-        missing |= money("igstAmount", invoice.getIgstAmount(), x.igstAmount(), mismatches);
-        missing |= money("totalAmount", invoice.getTotalAmount(), x.totalAmount(), mismatches);
+        missing |= money("baseAmount", invoice.getBaseAmount(), x.baseAmount(), text, mismatches, confirmedByText);
+        missing |= money("cgstAmount", invoice.getCgstAmount(), x.cgstAmount(), text, mismatches, confirmedByText);
+        missing |= money("sgstAmount", invoice.getSgstAmount(), x.sgstAmount(), text, mismatches, confirmedByText);
+        missing |= money("igstAmount", invoice.getIgstAmount(), x.igstAmount(), text, mismatches, confirmedByText);
+        missing |= money("totalAmount", invoice.getTotalAmount(), x.totalAmount(), text, mismatches, confirmedByText);
         missing |= compareLines(invoice, x, mismatches);
 
         MatchStatus status = !mismatches.isEmpty() ? MatchStatus.MISMATCH
                 : (missing || !x.warnings().isEmpty()) ? MatchStatus.NEEDS_REVIEW
                 : MatchStatus.MATCHED;
-        return new VerificationResult(status, x, mismatches);
+        return new VerificationResult(status, x, mismatches, confirmedByText);
     }
 
     /**
-     * Each entered line must appear in the document with the same quantity and rate. Returns true when the
-     * document's lines could not be read at all (manual review needed rather than a mismatch).
+     * Each entered line must appear in the document with the same quantity and rate. Extra document rows are
+     * not flagged: bundles repeat lines (PO copy, BOQ, cost breakup). Returns true when lines could not be
+     * confirmed and a person must check: nothing readable, or a row not found in OCR text (OCR may garble rows,
+     * so absence there is not proof of a mismatch; with an exact text layer it is).
      */
     private static boolean compareLines(Invoice invoice, ExtractedInvoice x, List<FieldMismatch> out) {
         if (x.lines() == null || x.lines().isEmpty()) {
             return !invoice.getLines().isEmpty();
         }
-        List<ExtractedLine> unmatched = new ArrayList<>(x.lines());
+        boolean unconfirmed = false;
         for (InvoiceLine entered : invoice.getLines()) {
-            ExtractedLine match = unmatched.stream()
-                    .filter(e -> e.quantity().compareTo(entered.getQuantity()) == 0
+            boolean found = x.lines().stream()
+                    .anyMatch(e -> e.quantity().compareTo(entered.getQuantity()) == 0
                             && e.unitPrice().subtract(entered.getUnitPrice()).abs()
-                                    .compareTo(InvoiceFieldParser.TOLERANCE) <= 0)
-                    .findFirst().orElse(null);
-            if (match == null) {
+                                    .compareTo(InvoiceFieldParser.TOLERANCE) <= 0);
+            if (found) {
+                continue;
+            }
+            if (x.source() == TextSource.OCR) {
+                unconfirmed = true;
+            } else {
                 out.add(new FieldMismatch("line " + entered.getPoLine().getItemNo(),
                         entered.getQuantity() + " x " + entered.getUnitPrice(), "no matching row in document"));
-            } else {
-                unmatched.remove(match);
             }
         }
-        for (ExtractedLine extra : unmatched) {
-            out.add(new FieldMismatch("document line", null,
-                    extra.quantity() + " x " + extra.unitPrice() + " (" + extra.description() + ")"));
-        }
-        return false;
+        return unconfirmed;
     }
 
-    /** Returns true when the value was entered but could not be extracted. Zero and absent are treated alike. */
-    private static boolean money(String field, BigDecimal entered, BigDecimal extracted, List<FieldMismatch> out) {
+    /**
+     * Returns true when the value was entered but could not be confirmed. Zero and absent are treated alike.
+     * When nothing was extracted, the entered amount found verbatim in the document counts as confirmed.
+     */
+    private static boolean money(String field, BigDecimal entered, BigDecimal extracted, DocumentText text,
+            List<FieldMismatch> out, List<String> confirmedByText) {
         if (extracted == null) {
-            return entered != null && entered.signum() != 0;
+            if (entered == null || entered.signum() == 0) {
+                return false;
+            }
+            if (text.containsAmount(entered)) {
+                confirmedByText.add(field);
+                return false;
+            }
+            return true;
         }
         BigDecimal e = entered == null ? BigDecimal.ZERO : entered;
         if (e.subtract(extracted).abs().compareTo(InvoiceFieldParser.TOLERANCE) > 0) {

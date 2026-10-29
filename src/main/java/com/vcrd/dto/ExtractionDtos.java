@@ -23,6 +23,8 @@ public final class ExtractionDtos {
             LocalDate invoiceDate,
             /** Every valid GSTIN found, in document order (usually supplier first, then buyer). */
             List<String> gstins,
+            /** 10-digit PO numbers referenced in the document (e.g. "ZSER-8000035454" gives 8000035454). */
+            List<String> poReferences,
             BigDecimal baseAmount,
             BigDecimal cgstAmount,
             BigDecimal sgstAmount,
@@ -39,7 +41,11 @@ public final class ExtractionDtos {
     public record FieldMismatch(String field, String entered, String extracted) {
     }
 
+    /**
+     * @param confirmedByText fields not attributable to a label but whose entered value appears verbatim
+     *                        in the document text (e.g. an invoice number OCR read from a table cell)
+     */
     public record VerificationResult(MatchStatus matchStatus, ExtractedInvoice extracted,
-            List<FieldMismatch> mismatches) {
+            List<FieldMismatch> mismatches, List<String> confirmedByText) {
     }
 }

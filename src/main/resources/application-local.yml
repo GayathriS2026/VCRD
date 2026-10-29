@@ -1,0 +1,52 @@
+# Local development against PostgreSQL and Keycloak. Activate with: SPRING_PROFILES_ACTIVE=local
+# The portal uses its own schema "vcrd" in the same database, so its migrations never touch other apps' tables.
+server:
+  port: 8026
+  servlet:
+    context-path: /vcrd-srvc
+
+spring:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/onm?currentSchema=vcrd}
+    username: ${DB_USERNAME:AA105206}
+    password: ${DB_PASSWORD:}
+    hikari:
+      # Must be > 2: a request can hold a second connection briefly (first-login user provisioning),
+      # and the background jobs need their own.
+      maximum-pool-size: 10
+  flyway:
+    schemas: vcrd
+    default-schema: vcrd
+    create-schemas: true
+  jpa:
+    properties:
+      hibernate.default_schema: vcrd
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 25MB
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+
+vcrd:
+  auth:
+    # Built-in login until the VCRD Keycloak client exists; then set VCRD_AUTH_MODE=keycloak.
+    mode: ${VCRD_AUTH_MODE:local}
+  storage:
+    root: ${VCRD_STORAGE_ROOT:D:/Energxiq_source_code/vcrd-documents}
+  ocr:
+    tessdata-path: ${VCRD_TESSDATA_PATH:}
+  malware:
+    mode: ${VCRD_MALWARE_MODE:disabled}
+
+keycloak:
+  realm: isolarsight
+  auth-server-url: https://jakson.energxiq.com/auth
+  resource: ${KEYCLOAK_CLIENT_ID:om}
+  credentials:
+    secret: ${KEYCLOAK_SECRET:}
+  bearer-only: true
+  use-resource-role-mappings: true

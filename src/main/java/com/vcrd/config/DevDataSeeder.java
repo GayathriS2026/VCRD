@@ -10,17 +10,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Profile;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Seeds demo users for local development. Never active in the "prod" profile;
- * real users will come from enterprise SSO.
+ * Seeds demo users when using the built-in login. Off in the "prod" profile unless VCRD_DEMO_USERS=true;
+ * real users come from Keycloak once VCRD_AUTH_MODE=keycloak.
  */
 @Component
-@Profile("!prod")
 @ConditionalOnProperty(name = "vcrd.auth.mode", havingValue = "local", matchIfMissing = true)
 public class DevDataSeeder implements CommandLineRunner {
 
@@ -30,14 +28,21 @@ public class DevDataSeeder implements CommandLineRunner {
     private final AppUserRepository users;
     private final PasswordEncoder passwordEncoder;
 
-    public DevDataSeeder(AppUserRepository users, PasswordEncoder passwordEncoder) {
+    private final boolean demoUsersEnabled;
+
+    public DevDataSeeder(AppUserRepository users, PasswordEncoder passwordEncoder,
+            @org.springframework.beans.factory.annotation.Value("${vcrd.demo-users.enabled:true}") boolean demoUsersEnabled) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
+        this.demoUsersEnabled = demoUsersEnabled;
     }
 
     @Override
     @Transactional
     public void run(String... args) {
+        if (!demoUsersEnabled) {
+            return;
+        }
         String hash = passwordEncoder.encode(DEMO_PASSWORD);
         int added = 0;
         added += seed(new AppUser("site.user", hash, "Site User (SITE-01)", Set.of(Role.SITE_USER), Set.of("SITE-01")));

@@ -32,7 +32,8 @@ import com.vcrd.config.DevDataSeeder;
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:vcrdtest;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH",
         "vcrd.storage.root=target/test-documents",
-        "vcrd.jobs.enabled=false"
+        "vcrd.jobs.enabled=false",
+        "vcrd.processing.async-extraction=false"
 })
 @AutoConfigureMockMvc
 class InvoiceFlowTest {

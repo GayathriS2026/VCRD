@@ -45,7 +45,7 @@ public class WorkflowController {
         workflowService.perform(id, action, request == null ? null : request.remark());
         // The action is committed; now run any automatic steps it unlocked (document check, validation,
         // SAP calls). Failures there are retried by the background job, never surfaced as an error here.
-        processor.process(id);
+        processor.processAfterUserAction(id);
         return invoiceService.get(id);
     }
 

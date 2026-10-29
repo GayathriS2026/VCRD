@@ -1,0 +1,223 @@
+{
+  "info": {
+    "name": "VCRD Backend (local)",
+    "description": "Run requests top to bottom. Logins store tokens; Create Invoice stores invoiceId; Upload stores documentId. Change vendorInvoiceNo for each new invoice.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080/api/v1" },
+    { "key": "password", "value": "Password@123" },
+    { "key": "siteToken", "value": "" },
+    { "key": "pmoToken", "value": "" },
+    { "key": "approverToken", "value": "" },
+    { "key": "invoiceId", "value": "" },
+    { "key": "documentId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Login",
+      "item": [
+        {
+          "name": "Login site.user",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.collectionVariables.set('siteToken', pm.response.json().accessToken);"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"site.user\",\n  \"password\": \"{{password}}\"\n}" }
+          }
+        },
+        {
+          "name": "Login pmo.user",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.collectionVariables.set('pmoToken', pm.response.json().accessToken);"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"pmo.user\",\n  \"password\": \"{{password}}\"\n}" }
+          }
+        },
+        {
+          "name": "Login approver",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.collectionVariables.set('approverToken', pm.response.json().accessToken);"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"approver\",\n  \"password\": \"{{password}}\"\n}" }
+          }
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/me"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Extraction (no invoice needed)",
+      "item": [
+        {
+          "name": "Extraction preview (choose a file)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": { "raw": "{{baseUrl}}/extraction/preview?includeText=false", "host": ["{{baseUrl}}"], "path": ["extraction", "preview"], "query": [{ "key": "includeText", "value": "false" }] },
+            "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "" }] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Invoice flow",
+      "item": [
+        {
+          "name": "Get PO 4500012345",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/pos/4500012345"
+          }
+        },
+        {
+          "name": "Create invoice",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.collectionVariables.set('invoiceId', pm.response.json().id);"] } }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{siteToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/invoices",
+            "body": { "mode": "raw", "raw": "{\n  \"poNumber\": \"4500012345\",\n  \"vendorInvoiceNo\": \"INV-TEST-001\",\n  \"invoiceDate\": \"2026-10-01\",\n  \"baseAmount\": 5000,\n  \"taxAmount\": 900,\n  \"cgstAmount\": 450,\n  \"sgstAmount\": 450,\n  \"totalAmount\": 5900,\n  \"remarks\": \"Postman test\",\n  \"lines\": [\n    { \"poItemNo\": 10, \"quantity\": 10, \"unitPrice\": 500 }\n  ]\n}" }
+          }
+        },
+        {
+          "name": "Upload document (choose a file)",
+          "event": [{ "listen": "test", "script": { "exec": ["pm.collectionVariables.set('documentId', pm.response.json().id);"] } }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/documents",
+            "body": { "mode": "formdata", "formdata": [{ "key": "file", "type": "file", "src": "" }] }
+          }
+        },
+        {
+          "name": "Verify document against invoice (sync)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/documents/{{documentId}}/verify"
+          }
+        },
+        {
+          "name": "SUBMIT",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/actions/SUBMIT"
+          }
+        },
+        {
+          "name": "Get invoice (poll until matchStatus != PENDING)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}"
+          }
+        },
+        {
+          "name": "Verification details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/verification"
+          }
+        },
+        {
+          "name": "VERIFY (runs validation)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{siteToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/actions/VERIFY",
+            "body": { "mode": "raw", "raw": "{\n  \"remark\": \"Checked against original document\"\n}" }
+          }
+        },
+        {
+          "name": "Validation details",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/validation"
+          }
+        },
+        {
+          "name": "INITIATE_ZPARK (pmo)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{pmoToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/actions/INITIATE_ZPARK"
+          }
+        },
+        {
+          "name": "APPROVE (approver)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{approverToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/actions/APPROVE"
+          }
+        },
+        {
+          "name": "POST_MIRO (pmo)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{pmoToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/actions/POST_MIRO"
+          }
+        },
+        {
+          "name": "RETURN (approver, needs remark)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{approverToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/actions/RETURN",
+            "body": { "mode": "raw", "raw": "{\n  \"remark\": \"Please attach the measurement sheet\"\n}" }
+          }
+        },
+        {
+          "name": "Available actions",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/actions"
+          }
+        },
+        {
+          "name": "History",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": "{{baseUrl}}/invoices/{{invoiceId}}/history"
+          }
+        },
+        {
+          "name": "List invoices (exception queue)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{siteToken}}" }],
+            "url": { "raw": "{{baseUrl}}/invoices?status=VALIDATION_FAILED", "host": ["{{baseUrl}}"], "path": ["invoices"], "query": [{ "key": "status", "value": "VALIDATION_FAILED" }] }
+          }
+        }
+      ]
+    }
+  ]
+}

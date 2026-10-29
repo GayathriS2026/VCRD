@@ -1,0 +1,70 @@
+# Production. Activate with: SPRING_PROFILES_ACTIVE=prod
+# Secrets are NEVER stored here. Required environment variables:
+#   DB_PASSWORD, VCRD_JWT_SECRET (built-in login, min 32 chars)
+#   KEYCLOAK_SECRET once VCRD_AUTH_MODE=keycloak; CLAMAV_HOST if clamd is not on this machine
+# The portal uses its own schema "vcrd" in solardb, so its migrations never touch the onm schema.
+server:
+  port: ${SERVER_PORT:8026}
+  servlet:
+    context-path: /vcrd-srvc
+
+spring:
+  datasource:
+    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL:jdbc:postgresql://10.3.0.49:5432/solardb?currentSchema=vcrd}
+    username: ${DB_USERNAME:solardb}
+    password: ${DB_PASSWORD}
+    hikari:
+      # Must be > 2: a request can hold a second connection briefly (first-login user provisioning),
+      # and the background jobs need their own.
+      maximum-pool-size: 10
+  flyway:
+    schemas: vcrd
+    default-schema: vcrd
+    create-schemas: true
+  jpa:
+    properties:
+      hibernate.default_schema: vcrd
+  h2:
+    console:
+      enabled: false
+
+logging:
+  file:
+    name: /opt/ipredict/vcrd/application.log
+  level:
+    org.hibernate.SQL: INFO
+
+springdoc:
+  swagger-ui:
+    enabled: false
+  api-docs:
+    enabled: false
+
+vcrd:
+  auth:
+    # Built-in login until the VCRD Keycloak client exists; then set VCRD_AUTH_MODE=keycloak.
+    mode: ${VCRD_AUTH_MODE:local}
+  jwt:
+    secret: ${VCRD_JWT_SECRET}
+  # Demo users have a password published in the code: only for a first trial, never with real data.
+  demo-users:
+    enabled: ${VCRD_DEMO_USERS:false}
+  storage:
+    root: ${VCRD_STORAGE_ROOT:/opt/ipredict/vcrd/documents}
+  ocr:
+    tessdata-path: ${VCRD_TESSDATA_PATH:/opt/ipredict/vcrd/tessdata}
+  malware:
+    mode: clamav
+    clamav:
+      host: ${CLAMAV_HOST:localhost}
+      port: ${CLAMAV_PORT:3310}
+
+keycloak:
+  realm: isolarsight
+  auth-server-url: https://jakson.energxiq.com/auth
+  resource: ${KEYCLOAK_CLIENT_ID:om}
+  credentials:
+    secret: ${KEYCLOAK_SECRET:}
+  bearer-only: true
+  use-resource-role-mappings: true

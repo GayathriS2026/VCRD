@@ -7,7 +7,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
+
+import jakarta.annotation.PreDestroy;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,11 +78,20 @@ public class InvoiceProcessor {
     private final AuditService audit;
     private final TransactionTemplate tx;
     private final Duration reconcileAfter;
+    private final boolean asyncExtraction;
+    /** Small fixed pool: OCR is CPU-heavy, and the background job retries anything not picked up here. */
+    private final ExecutorService extractionExecutor = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "invoice-extraction");
+        t.setDaemon(true);
+        return t;
+    });
 
     public InvoiceProcessor(InvoiceRepository invoices, InvoiceDocumentRepository documents, WorkflowService workflow,
             InvoiceVerificationService verification, InvoiceValidationService validation, SapInvoiceGateway sap,
             AuditService audit, PlatformTransactionManager txManager,
-            @Value("${vcrd.sap.reconcile-after:PT5M}") Duration reconcileAfter) {
+            @Value("${vcrd.sap.reconcile-after:PT5M}") Duration reconcileAfter,
+            @Value("${vcrd.processing.async-extraction:true}") boolean asyncExtraction) {
+        this.asyncExtraction = asyncExtraction;
         this.invoices = invoices;
         this.documents = documents;
         this.workflow = workflow;
@@ -92,9 +105,30 @@ public class InvoiceProcessor {
 
     /** Advances the invoice as far as it can go automatically. Never throws; failures are retried later. */
     public void process(UUID invoiceId) {
+        process(invoiceId, true);
+    }
+
+    /**
+     * Called right after a user action. Fast steps (validation, SAP calls) run now so the response shows the
+     * outcome; document extraction (OCR can take a minute for a scanned bundle) runs in the background when
+     * async extraction is enabled, and the UI sees matchStatus change from PENDING when it is done.
+     */
+    public void processAfterUserAction(UUID invoiceId) {
+        process(invoiceId, !asyncExtraction);
+        if (asyncExtraction && needsExtraction(invoiceId)) {
+            extractionExecutor.execute(() -> process(invoiceId, true));
+        }
+    }
+
+    @PreDestroy
+    void shutdown() {
+        extractionExecutor.shutdown();
+    }
+
+    private void process(UUID invoiceId, boolean allowExtraction) {
         for (int i = 0; i < MAX_STEPS; i++) {
             try {
-                if (!step(invoiceId)) {
+                if (!step(invoiceId, allowExtraction)) {
                     return;
                 }
             } catch (RuntimeException e) {
@@ -104,12 +138,18 @@ public class InvoiceProcessor {
         }
     }
 
+    private boolean needsExtraction(UUID invoiceId) {
+        Invoice invoice = tx.execute(s -> load(invoiceId));
+        return invoice.getStatus() == InvoiceStatus.PENDING_VERIFICATION
+                && invoice.getMatchStatus() == MatchStatus.PENDING;
+    }
+
     /** Performs one step. Returns true if the status changed (so another step may follow). */
-    boolean step(UUID invoiceId) {
+    boolean step(UUID invoiceId, boolean allowExtraction) {
         Invoice snapshot = tx.execute(s -> load(invoiceId));
         return switch (snapshot.getStatus()) {
             case PENDING_VERIFICATION -> {
-                if (snapshot.getMatchStatus() == MatchStatus.PENDING) {
+                if (allowExtraction && snapshot.getMatchStatus() == MatchStatus.PENDING) {
                     tx.executeWithoutResult(s -> verification.verifyLatestAsSystem(load(invoiceId)));
                 }
                 yield false; // the user verifies next
