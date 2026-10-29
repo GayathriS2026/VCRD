@@ -69,6 +69,7 @@ public final class InvoiceDtos {
             String remarks,
             ParkingInfo parking,
             ClearingInfo clearing,
+            SapRefs sap,
             MatchStatus matchStatus,
             Instant matchCheckedAt,
             InvoiceStatus status,
@@ -86,6 +87,17 @@ public final class InvoiceDtos {
         public static ParkingInfo from(Invoice i) {
             return new ParkingInfo(i.getParkedDocNo(), i.getParkedBySapId(), i.getParkedByName(), i.getParkedAt(),
                     i.getParkChangedBySapId(), i.getParkChangedByName(), i.getParkChangedAt());
+        }
+    }
+
+    public record SapRefs(String zparkCorrelationId, String parkedFiscalYear, String grMaterialDocNo,
+            String miroCorrelationId, String miroDocNo, String miroFiscalYear, String messages,
+            Instant validatedAt) {
+
+        public static SapRefs from(Invoice i) {
+            return new SapRefs(i.getZparkCorrelationId(), i.getParkedFiscalYear(), i.getGrMaterialDocNo(),
+                    i.getMiroCorrelationId(), i.getMiroDocNo(), i.getMiroFiscalYear(), i.getSapMessages(),
+                    i.getValidatedAt());
         }
     }
 

@@ -1,6 +1,7 @@
 package com.vcrd.component;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -17,16 +18,24 @@ public class MockSapPoGateway implements SapPoGateway {
             "4500012345", new SapPurchaseOrder("4500012345", "V1001", "ABC Industrial Supplies", "1000",
                     "SITE-01", "INR", "RELEASED", List.of(
                             new SapPoLine(10, "MAT-CBL-01", "Cables", new BigDecimal("100"), "M", new BigDecimal("500.00")),
-                            new SapPoLine(20, "MAT-SWG-01", "Switchgear", new BigDecimal("10"), "EA", new BigDecimal("20000.00")))),
+                            new SapPoLine(20, "MAT-SWG-01", "Switchgear", new BigDecimal("10"), "EA", new BigDecimal("20000.00"))),
+                    "GSL", "IPSPL_SHANU", "Z314", "100% pmtaf. receipt of Inv.", "EP06/JGRJ", null),
             "4500012346", new SapPurchaseOrder("4500012346", "V1002", "Sun Power Pvt Ltd", "1000",
                     "SITE-02", "INR", "RELEASED", List.of(
-                            new SapPoLine(10, "MAT-SOL-01", "Solar panels", new BigDecimal("100"), "EA", new BigDecimal("5000.00")))),
+                            new SapPoLine(10, "MAT-SOL-01", "Solar panels", new BigDecimal("100"), "EA", new BigDecimal("5000.00"))),
+                    "GSL", "IPSPL_SHANU", "Z314", "100% pmtaf. receipt of Inv.", "EP07/SOLR", null),
             "4500012347", new SapPurchaseOrder("4500012347", "V1001", "ABC Industrial Supplies", "1000",
                     "SITE-01", "INR", "NOT_RELEASED", List.of(
-                            new SapPoLine(10, "MAT-CBL-02", "Control cables", new BigDecimal("500"), "M", new BigDecimal("120.00")))));
+                            new SapPoLine(10, "MAT-CBL-02", "Control cables", new BigDecimal("500"), "M", new BigDecimal("120.00"))),
+                    "GSL", "IPSPL_SHANU", "Z314", "100% pmtaf. receipt of Inv.", null, null));
 
     @Override
     public Optional<SapPurchaseOrder> fetchPurchaseOrder(String poNumber) {
         return Optional.ofNullable(PURCHASE_ORDERS.get(poNumber));
+    }
+
+    @Override
+    public List<String> findChangedPoNumbers(Instant since) {
+        return List.copyOf(PURCHASE_ORDERS.keySet());
     }
 }

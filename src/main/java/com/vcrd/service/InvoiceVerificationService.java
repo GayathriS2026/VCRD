@@ -66,14 +66,46 @@ public class InvoiceVerificationService {
                 .filter(d -> d.getInvoiceId().equals(invoiceId))
                 .orElseThrow(() -> new NotFoundException("Document " + documentId + " not found"));
 
-        ReadText text = textReader.read(readBytes(document), document.getContentType());
-        ExtractedInvoice extracted = parser.parse(text.text(), text.source());
-        VerificationResult result = compare(invoice, extracted);
-
+        VerificationResult result = extractAndCompare(invoice, document);
         invoice.recordMatch(result.matchStatus(), toJson(result));
         audit.record("INVOICE", invoiceId, "DOCUMENT_VERIFIED", Map.of("documentId", documentId,
                 "matchStatus", result.matchStatus(), "mismatches", result.mismatches().size()));
         return result;
+    }
+
+    /**
+     * System step after submission: checks the latest document. Never throws for unreadable documents;
+     * those are recorded as NEEDS_REVIEW with the reason, so the user can verify manually.
+     */
+    public void verifyLatestAsSystem(Invoice invoice) {
+        List<InvoiceDocument> docs = documents.findByInvoiceIdOrderByVersionNo(invoice.getId());
+        if (docs.isEmpty()) {
+            return;
+        }
+        InvoiceDocument latest = docs.get(docs.size() - 1);
+        VerificationResult result;
+        String error = null;
+        try {
+            result = extractAndCompare(invoice, latest);
+        } catch (BusinessException e) {
+            error = e.getMessage();
+            result = new VerificationResult(MatchStatus.NEEDS_REVIEW, null, List.of());
+        }
+        invoice.recordMatch(result.matchStatus(), toJson(result));
+        Map<String, Object> details = new java.util.LinkedHashMap<>();
+        details.put("documentId", latest.getId());
+        details.put("matchStatus", result.matchStatus());
+        details.put("mismatches", result.mismatches().size());
+        if (error != null) {
+            details.put("error", error);
+        }
+        audit.recordSystem("INVOICE", invoice.getId(), "DOCUMENT_VERIFIED", details);
+    }
+
+    private VerificationResult extractAndCompare(Invoice invoice, InvoiceDocument document) {
+        ReadText text = textReader.read(readBytes(document), document.getContentType());
+        ExtractedInvoice extracted = parser.parse(text.text(), text.source());
+        return compare(invoice, extracted);
     }
 
     static VerificationResult compare(Invoice invoice, ExtractedInvoice x) {

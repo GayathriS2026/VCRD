@@ -27,8 +27,14 @@ vcrd:
     tessdata-path: ${VCRD_TESSDATA_PATH:}
     language: eng
   sap:
-    # mock = in-memory sample POs. Real gateway will be added once the SAP interface is confirmed.
+    # mock = in-memory sample POs and SAP invoice processing. Real gateway will be added once the SAP interface is confirmed.
     mode: mock
+    # How long an uncertain SAP request may stay unconfirmed before "not found in SAP" is trusted and a retry allowed.
+    reconcile-after: PT5M
+  jobs:
+    enabled: true
+    invoice-interval: PT1M
+    po-sync-interval: PT15M
 
 springdoc:
   swagger-ui:

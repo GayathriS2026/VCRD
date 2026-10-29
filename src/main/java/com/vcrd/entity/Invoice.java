@@ -116,6 +116,34 @@ public class Invoice {
     @Column(columnDefinition = "TEXT")
     private String matchDetails;
 
+    /** JSON of the last ValidationResult (rule failures with expected vs actual). */
+    @Column(columnDefinition = "TEXT")
+    private String validationDetails;
+
+    private Instant validatedAt;
+
+    // SAP request tracking. The correlation ID is written BEFORE calling SAP so an unknown outcome
+    // can be reconciled by asking SAP for that reference instead of resubmitting.
+    private String zparkCorrelationId;
+
+    private Instant zparkRequestedAt;
+
+    private String parkedFiscalYear;
+
+    private String grMaterialDocNo;
+
+    private String miroCorrelationId;
+
+    private Instant miroRequestedAt;
+
+    private String miroDocNo;
+
+    private String miroFiscalYear;
+
+    /** Latest SAP return messages, newline separated. */
+    @Column(columnDefinition = "TEXT")
+    private String sapMessages;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private InvoiceStatus status = InvoiceStatus.UPLOADED;
@@ -189,6 +217,70 @@ public class Invoice {
         this.matchStatus = matchStatus;
         this.matchDetails = matchDetails;
         this.matchCheckedAt = Instant.now();
+        touch();
+    }
+
+    /** Entered details changed, so the previous document comparison no longer applies. */
+    public void resetMatch() {
+        this.matchStatus = MatchStatus.PENDING;
+        this.matchDetails = null;
+        this.matchCheckedAt = null;
+        touch();
+    }
+
+    public void recordValidation(String validationDetails) {
+        this.validationDetails = validationDetails;
+        this.validatedAt = Instant.now();
+        touch();
+    }
+
+    /** New Z PARK attempt: fresh correlation ID, not yet sent. */
+    public void startZpark(String correlationId) {
+        this.zparkCorrelationId = correlationId;
+        this.zparkRequestedAt = null;
+        touch();
+    }
+
+    public void markZparkRequested() {
+        this.zparkRequestedAt = Instant.now();
+        touch();
+    }
+
+    public void recordParked(String docNo, String fiscalYear, String createdBySapId, String createdByName,
+            Instant createdAt) {
+        this.parkedDocNo = docNo;
+        this.parkedFiscalYear = fiscalYear;
+        this.parkedBySapId = createdBySapId;
+        this.parkedByName = createdByName;
+        this.parkedAt = createdAt;
+        touch();
+    }
+
+    public void recordGoodsReceipt(String materialDocNo) {
+        this.grMaterialDocNo = materialDocNo;
+        touch();
+    }
+
+    public void startMiro(String correlationId) {
+        this.miroCorrelationId = correlationId;
+        this.miroRequestedAt = null;
+        touch();
+    }
+
+    public void markMiroRequested() {
+        this.miroRequestedAt = Instant.now();
+        touch();
+    }
+
+    public void recordPosted(String docNo, String fiscalYear, BigDecimal miroValue) {
+        this.miroDocNo = docNo;
+        this.miroFiscalYear = fiscalYear;
+        this.miroValue = miroValue;
+        touch();
+    }
+
+    public void recordSapMessages(String sapMessages) {
+        this.sapMessages = sapMessages;
         touch();
     }
 
@@ -343,6 +435,50 @@ public class Invoice {
 
     public String getMatchDetails() {
         return matchDetails;
+    }
+
+    public String getValidationDetails() {
+        return validationDetails;
+    }
+
+    public Instant getValidatedAt() {
+        return validatedAt;
+    }
+
+    public String getZparkCorrelationId() {
+        return zparkCorrelationId;
+    }
+
+    public Instant getZparkRequestedAt() {
+        return zparkRequestedAt;
+    }
+
+    public String getParkedFiscalYear() {
+        return parkedFiscalYear;
+    }
+
+    public String getGrMaterialDocNo() {
+        return grMaterialDocNo;
+    }
+
+    public String getMiroCorrelationId() {
+        return miroCorrelationId;
+    }
+
+    public Instant getMiroRequestedAt() {
+        return miroRequestedAt;
+    }
+
+    public String getMiroDocNo() {
+        return miroDocNo;
+    }
+
+    public String getMiroFiscalYear() {
+        return miroFiscalYear;
+    }
+
+    public String getSapMessages() {
+        return sapMessages;
     }
 
     public InvoiceStatus getStatus() {

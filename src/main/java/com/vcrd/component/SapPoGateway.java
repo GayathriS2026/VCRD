@@ -1,6 +1,7 @@
 package com.vcrd.component;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,6 +14,9 @@ public interface SapPoGateway {
 
     Optional<SapPurchaseOrder> fetchPurchaseOrder(String poNumber);
 
+    /** PO numbers created or changed in SAP since the given time (for scheduled synchronisation). */
+    List<String> findChangedPoNumbers(Instant since);
+
     record SapPurchaseOrder(
             String poNumber,
             String vendorCode,
@@ -21,7 +25,13 @@ public interface SapPoGateway {
             String siteCode,
             String currency,
             String releaseStatus,
-            List<SapPoLine> lines) {
+            List<SapPoLine> lines,
+            String purchaseGroup,
+            String buyerSapId,
+            String paymentTermCode,
+            String paymentTermText,
+            String wbsCode,
+            String vendorGstin) {
     }
 
     record SapPoLine(

@@ -71,12 +71,12 @@ public class WorkflowService {
 
     @Transactional
     public InvoiceResponse perform(UUID invoiceId, WorkflowAction action, String remark) {
+        if (action.isSystem()) {
+            throw new AccessDeniedException(action + " is recorded by the system and cannot be performed by users");
+        }
         CurrentUser user = currentUser.get();
         Invoice invoice = accessPolicy.loadAccessible(invoiceId, user);
         Transition transition = findTransition(invoice, action);
-        if (transition.isSystemOnly()) {
-            throw new AccessDeniedException(action + " is recorded by the system and cannot be performed by users");
-        }
         if (!user.hasAnyRole(transition.allowedRoles())) {
             throw new AccessDeniedException("Role not permitted for " + action);
         }
@@ -92,10 +92,10 @@ public class WorkflowService {
     public InvoiceResponse performSystem(UUID invoiceId, WorkflowAction action, String remark) {
         Invoice invoice = invoices.findById(invoiceId)
                 .orElseThrow(() -> new NotFoundException("Invoice " + invoiceId + " not found"));
-        Transition transition = findTransition(invoice, action);
-        if (!transition.isSystemOnly()) {
+        if (!action.isSystem()) {
             throw new IllegalArgumentException(action + " is a user action");
         }
+        Transition transition = findTransition(invoice, action);
         return apply(invoice, action, transition, remark, null);
     }
 
@@ -110,6 +110,11 @@ public class WorkflowService {
             UUID actorId) {
         UUID invoiceId = invoice.getId();
         InvoiceStatus from = invoice.getStatus();
+        if (action == WorkflowAction.INITIATE_ZPARK) {
+            invoice.startZpark(UUID.randomUUID().toString());
+        } else if (action == WorkflowAction.POST_MIRO) {
+            invoice.startMiro(UUID.randomUUID().toString());
+        }
         stateChanger.apply(invoice, transition.to());
         history.save(new WorkflowHistory(invoiceId, from, transition.to(), action, actorId, remark));
 
@@ -149,6 +154,22 @@ public class WorkflowService {
     private void checkGuards(Invoice invoice, WorkflowAction action, String remark, CurrentUser user) {
         if (action == WorkflowAction.SUBMIT && documents.countByInvoiceId(invoice.getId()) == 0) {
             throw new BusinessException("DOCUMENT_REQUIRED", "Upload the invoice document before submitting");
+        }
+        if (action == WorkflowAction.VERIFY) {
+            switch (invoice.getMatchStatus()) {
+                case PENDING -> throw new BusinessException("VERIFICATION_PENDING",
+                        "Document check has not run yet; run verify on the document first");
+                case MISMATCH -> throw new BusinessException("VERIFICATION_MISMATCH",
+                        "Entered details differ from the document; correct them and verify again");
+                case NEEDS_REVIEW -> {
+                    if (remark == null || remark.isBlank()) {
+                        throw new BusinessException("REMARK_REQUIRED",
+                                "Document could not be fully checked; confirm you verified it manually in a remark");
+                    }
+                }
+                case MATCHED -> {
+                }
+            }
         }
         if (REQUIRE_REMARK.contains(action) && (remark == null || remark.isBlank())) {
             throw new BusinessException("REMARK_REQUIRED", "A remark is required for " + action);

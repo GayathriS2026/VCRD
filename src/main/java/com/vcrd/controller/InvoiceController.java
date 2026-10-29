@@ -86,6 +86,21 @@ public class InvoiceController {
         return verificationService.verify(id, documentId);
     }
 
+    @GetMapping(path = "/{id}/verification", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> verification(@PathVariable UUID id) {
+        return jsonOrNoContent(invoiceService.verificationDetails(id));
+    }
+
+    /** Exception-queue detail: each failed rule with SAP expected value vs invoice actual value. */
+    @GetMapping(path = "/{id}/validation", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> validation(@PathVariable UUID id) {
+        return jsonOrNoContent(invoiceService.validationDetails(id));
+    }
+
+    private static ResponseEntity<String> jsonOrNoContent(String json) {
+        return json == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(json);
+    }
+
     @GetMapping("/{id}/documents/{documentId}/content")
     public ResponseEntity<org.springframework.core.io.Resource> download(@PathVariable UUID id,
             @PathVariable UUID documentId) {

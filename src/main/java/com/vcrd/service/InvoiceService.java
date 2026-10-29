@@ -119,6 +119,9 @@ public class InvoiceService {
         }
         Map<String, Object> before = snapshot(invoice);
         applyRequest(invoice, po, request);
+        if (invoice.getStatus() == InvoiceStatus.PENDING_VERIFICATION) {
+            invoice.resetMatch(); // re-check the document against the corrected details
+        }
         audit.record("INVOICE", invoice.getId(), "INVOICE_UPDATED", Map.of("before", before, "after", snapshot(invoice)));
         return toResponse(invoice);
     }
@@ -174,6 +177,18 @@ public class InvoiceService {
         return toResponse(accessPolicy.loadAccessible(invoiceId, currentUser.get()));
     }
 
+    /** Stored JSON of the last document check (null if none). */
+    @Transactional(readOnly = true)
+    public String verificationDetails(UUID invoiceId) {
+        return accessPolicy.loadAccessible(invoiceId, currentUser.get()).getMatchDetails();
+    }
+
+    /** Stored JSON of the last validation with expected vs actual per failed rule (null if none). */
+    @Transactional(readOnly = true)
+    public String validationDetails(UUID invoiceId) {
+        return accessPolicy.loadAccessible(invoiceId, currentUser.get()).getValidationDetails();
+    }
+
     @Transactional(readOnly = true)
     public Page<InvoiceSummary> list(InvoiceStatus status, String poNumber, String siteCode, Pageable pageable) {
         CurrentUser user = currentUser.get();
@@ -212,7 +227,7 @@ public class InvoiceService {
                 invoice.getBaseAmount(), invoice.getTaxAmount(), invoice.getTotalAmount(),
                 invoice.getCgstAmount(), invoice.getSgstAmount(), invoice.getIgstAmount(), invoice.getOtherTaxes(),
                 invoice.getOtherCharges(), invoice.getInvoiceReceiptDate(), invoice.getRemarks(),
-                ParkingInfo.from(invoice), ClearingInfo.from(invoice),
+                ParkingInfo.from(invoice), ClearingInfo.from(invoice), InvoiceDtos.SapRefs.from(invoice),
                 invoice.getMatchStatus(), invoice.getMatchCheckedAt(), invoice.getStatus(),
                 invoice.getCreatedBy(), invoice.getCreatedAt(), invoice.getUpdatedAt(), invoice.getVersion(), lines,
                 docs);

@@ -43,7 +43,7 @@ public class PoService {
     public PurchaseOrder loadPo(String poNumber, boolean refresh) {
         PurchaseOrder po = repository.findByPoNumber(poNumber)
                 .filter(cached -> !refresh)
-                .orElseGet(() -> syncFromSap(poNumber));
+                .orElseGet(() -> refreshFromSap(poNumber));
         CurrentUser user = currentUser.get();
         if (!user.canAccessSite(po.getSiteCode())) {
             throw new AccessDeniedException("PO belongs to a site outside the user's scope");
@@ -51,13 +51,20 @@ public class PoService {
         return po;
     }
 
-    private PurchaseOrder syncFromSap(String poNumber) {
+    /**
+     * Copies the PO from SAP into the local cache. No user/site check: used by system jobs and by
+     * validation. Deliberately not @Transactional so an SAP failure does not mark the caller's
+     * transaction rollback-only; it joins the caller's transaction instead.
+     */
+    public PurchaseOrder refreshFromSap(String poNumber) {
         SapPurchaseOrder source = sapGateway.fetchPurchaseOrder(poNumber)
                 .orElseThrow(() -> new NotFoundException("PO " + poNumber + " not found in SAP"));
 
         PurchaseOrder po = repository.findByPoNumber(poNumber).orElseGet(() -> new PurchaseOrder(poNumber));
         po.updateHeader(source.vendorCode(), source.vendorName(), source.companyCode(), source.siteCode(),
                 source.currency(), source.releaseStatus());
+        po.updateCommercialDetails(source.purchaseGroup(), source.buyerSapId(), source.paymentTermCode(),
+                source.paymentTermText(), source.wbsCode(), source.vendorGstin());
         // Lines are updated in place, never deleted: invoice lines may already reference them.
         for (SapPoLine sapLine : source.lines()) {
             PoLine line = po.findLine(sapLine.itemNo()).orElseGet(() -> {

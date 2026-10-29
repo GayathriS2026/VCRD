@@ -32,6 +32,7 @@ import static com.vcrd.constants.WorkflowAction.RECONCILED_NOT_FOUND;
 import static com.vcrd.constants.WorkflowAction.REJECT;
 import static com.vcrd.constants.WorkflowAction.RETURN;
 import static com.vcrd.constants.WorkflowAction.SAP_CONFIRMED;
+import static com.vcrd.constants.WorkflowAction.SAP_REJECTED;
 import static com.vcrd.constants.WorkflowAction.SAP_UNCERTAIN;
 import static com.vcrd.constants.WorkflowAction.SUBMIT;
 import static com.vcrd.constants.WorkflowAction.VERIFY;
@@ -84,6 +85,7 @@ public class TransitionTable {
         add(VALIDATION_PASSED, INITIATE_ZPARK, ZPARK_IN_PROGRESS, Role.PMO);
         add(ZPARK_IN_PROGRESS, SAP_CONFIRMED, ZPARK_CREATED, SYSTEM);
         add(ZPARK_IN_PROGRESS, SAP_UNCERTAIN, ZPARK_UNCERTAIN, SYSTEM);
+        add(ZPARK_IN_PROGRESS, SAP_REJECTED, VALIDATION_FAILED, SYSTEM);
         add(ZPARK_UNCERTAIN, RECONCILED_FOUND, ZPARK_CREATED, SYSTEM);
         add(ZPARK_UNCERTAIN, RECONCILED_NOT_FOUND, VALIDATION_PASSED, SYSTEM);
 
@@ -100,6 +102,7 @@ public class TransitionTable {
         add(APPROVED, POST_MIRO, MIRO_IN_PROGRESS, Role.PMO, Role.FINANCE);
         add(MIRO_IN_PROGRESS, SAP_CONFIRMED, AWAITING_CLEARING, SYSTEM);
         add(MIRO_IN_PROGRESS, SAP_UNCERTAIN, MIRO_UNCERTAIN, SYSTEM);
+        add(MIRO_IN_PROGRESS, SAP_REJECTED, APPROVED, SYSTEM);
         add(MIRO_UNCERTAIN, RECONCILED_FOUND, AWAITING_CLEARING, SYSTEM);
         add(MIRO_UNCERTAIN, RECONCILED_NOT_FOUND, APPROVED, SYSTEM);
 

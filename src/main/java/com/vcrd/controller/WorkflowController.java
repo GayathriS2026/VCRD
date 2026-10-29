@@ -3,6 +3,8 @@ package com.vcrd.controller;
 import com.vcrd.dto.InvoiceDtos;
 import com.vcrd.constants.WorkflowAction;
 import com.vcrd.entity.WorkflowHistory;
+import com.vcrd.service.InvoiceProcessor;
+import com.vcrd.service.InvoiceService;
 import com.vcrd.service.WorkflowService;
 
 import java.util.List;
@@ -24,9 +26,14 @@ import jakarta.validation.constraints.Size;
 public class WorkflowController {
 
     private final WorkflowService workflowService;
+    private final InvoiceProcessor processor;
+    private final InvoiceService invoiceService;
 
-    public WorkflowController(WorkflowService workflowService) {
+    public WorkflowController(WorkflowService workflowService, InvoiceProcessor processor,
+            InvoiceService invoiceService) {
         this.workflowService = workflowService;
+        this.processor = processor;
+        this.invoiceService = invoiceService;
     }
 
     public record ActionRequest(@Size(max = 2000) String remark) {
@@ -35,7 +42,11 @@ public class WorkflowController {
     @PostMapping("/actions/{action}")
     public InvoiceResponse perform(@PathVariable UUID id, @PathVariable WorkflowAction action,
             @RequestBody(required = false) ActionRequest request) {
-        return workflowService.perform(id, action, request == null ? null : request.remark());
+        workflowService.perform(id, action, request == null ? null : request.remark());
+        // The action is committed; now run any automatic steps it unlocked (document check, validation,
+        // SAP calls). Failures there are retried by the background job, never surfaced as an error here.
+        processor.process(id);
+        return invoiceService.get(id);
     }
 
     @GetMapping("/actions")
