@@ -1,5 +1,7 @@
 package com.vcrd;
 
+import com.vcrd.entity.Invoice;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -18,7 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.vcrd.identity.DevDataSeeder;
+import com.vcrd.config.DevDataSeeder;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:vcrdtest;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH",
