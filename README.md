@@ -45,10 +45,11 @@ Mock SAP POs: `4500012345` (SITE-01), `4500012346` (SITE-02), `4500012347` (SITE
 | `audit` | Append-only audit events |
 | `common` | Errors (RFC 7807 ProblemDetail), correlation ID |
 
-## Deliberately deferred (waiting on business/SAP decisions)
-- Real SAP gateway, JACK PARK, MIGO/MIRO, reconciliation
-- Extraction (OCR), validation rule engine, exception module
-- Final workflow sequence (`TransitionTable` is interim), notifications, reports, SSO
+## Still open (waiting on business/SAP decisions)
+- Real SAP gateways: replace `MockSapPoGateway` / `MockSapInvoiceGateway` once the interface (RFC/BAPI or OData,
+  custom Z PARK function) is confirmed. SAP must store our correlation ID on parked/posted documents.
+- Confirm the proposed roles and approval levels in `vcrd.workflow`
+- Notifications and reports
 
 ## Configuration for shared environments
 
