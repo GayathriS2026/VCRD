@@ -19,15 +19,15 @@ public class MockSapPoGateway implements SapPoGateway {
                     "SITE-01", "INR", "RELEASED", List.of(
                             new SapPoLine(10, "MAT-CBL-01", "Cables", new BigDecimal("100"), "M", new BigDecimal("500.00")),
                             new SapPoLine(20, "MAT-SWG-01", "Switchgear", new BigDecimal("10"), "EA", new BigDecimal("20000.00"))),
-                    "GSL", "IPSPL_SHANU", "Z314", "100% pmtaf. receipt of Inv.", "EP06/JGRJ", null),
+                    "GSL", "IPSPL_SHANU", "Z314", "100% pmtaf. receipt of Inv.", "EP06/JGRJ", "09AABCA1234A1ZH", "09AAACV0000V1Z4"),
             "4500012346", new SapPurchaseOrder("4500012346", "V1002", "Sun Power Pvt Ltd", "1000",
                     "SITE-02", "INR", "RELEASED", List.of(
-                            new SapPoLine(10, "MAT-SOL-01", "Solar panels", new BigDecimal("100"), "EA", new BigDecimal("5000.00"))),
-                    "GSL", "IPSPL_SHANU", "Z314", "100% pmtaf. receipt of Inv.", "EP07/SOLR", null),
+                            new SapPoLine(10, "MAT-SOL-01", "Solar panels", new BigDecimal("200"), "EA", new BigDecimal("5000.00"))),
+                    "GSL", "IPSPL_SHANU", "Z314", "100% pmtaf. receipt of Inv.", "EP07/SOLR", "09AABCS5678B1Z9", "27AAACV0000V1Z6"),
             "4500012347", new SapPurchaseOrder("4500012347", "V1001", "ABC Industrial Supplies", "1000",
                     "SITE-01", "INR", "NOT_RELEASED", List.of(
                             new SapPoLine(10, "MAT-CBL-02", "Control cables", new BigDecimal("500"), "M", new BigDecimal("120.00"))),
-                    "GSL", "IPSPL_SHANU", "Z314", "100% pmtaf. receipt of Inv.", null, null));
+                    "GSL", "IPSPL_SHANU", "Z314", "100% pmtaf. receipt of Inv.", null, "09AABCA1234A1ZH", "09AAACV0000V1Z4"));
 
     @Override
     public Optional<SapPurchaseOrder> fetchPurchaseOrder(String poNumber) {

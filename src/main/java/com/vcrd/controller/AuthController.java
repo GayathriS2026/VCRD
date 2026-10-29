@@ -30,13 +30,16 @@ public class AuthController {
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final CurrentUserProvider currentUser;
+    private final boolean keycloakMode;
 
     public AuthController(AppUserRepository users, PasswordEncoder passwordEncoder, JwtService jwtService,
-            CurrentUserProvider currentUser) {
+            CurrentUserProvider currentUser,
+            @org.springframework.beans.factory.annotation.Value("${vcrd.auth.mode:local}") String authMode) {
         this.users = users;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
         this.currentUser = currentUser;
+        this.keycloakMode = "keycloak".equalsIgnoreCase(authMode);
     }
 
     public record LoginRequest(@NotBlank String username, @NotBlank String password) {
@@ -50,6 +53,9 @@ public class AuthController {
 
     @PostMapping("/auth/login")
     public LoginResponse login(@Valid @RequestBody LoginRequest request) {
+        if (keycloakMode) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Sign in through Keycloak");
+        }
         AppUser user = users.findByUsername(request.username())
                 .filter(AppUser::isActive)
                 .filter(u -> passwordEncoder.matches(request.password(), u.getPasswordHash()))

@@ -31,7 +31,9 @@ public interface SapPoGateway {
             String paymentTermCode,
             String paymentTermText,
             String wbsCode,
-            String vendorGstin) {
+            String vendorGstin,
+            /** GSTIN of the receiving plant/company; decides intra-state (CGST+SGST) vs inter-state (IGST). */
+            String buyerGstin) {
     }
 
     record SapPoLine(

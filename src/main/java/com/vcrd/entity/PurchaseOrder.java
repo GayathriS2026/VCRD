@@ -67,6 +67,8 @@ public class PurchaseOrder {
 
     private String vendorGstin;
 
+    private String buyerGstin;
+
     @OneToMany(mappedBy = "purchaseOrder", cascade = CascadeType.ALL)
     @OrderBy("itemNo")
     private List<PoLine> lines = new ArrayList<>();
@@ -90,13 +92,14 @@ public class PurchaseOrder {
     }
 
     public void updateCommercialDetails(String purchaseGroup, String buyerSapId, String paymentTermCode,
-            String paymentTermText, String wbsCode, String vendorGstin) {
+            String paymentTermText, String wbsCode, String vendorGstin, String buyerGstin) {
         this.purchaseGroup = purchaseGroup;
         this.buyerSapId = buyerSapId;
         this.paymentTermCode = paymentTermCode;
         this.paymentTermText = paymentTermText;
         this.wbsCode = wbsCode;
         this.vendorGstin = vendorGstin;
+        this.buyerGstin = buyerGstin;
     }
 
     public Optional<PoLine> findLine(int itemNo) {
@@ -175,6 +178,10 @@ public class PurchaseOrder {
 
     public String getWbsCode() {
         return wbsCode;
+    }
+
+    public String getBuyerGstin() {
+        return buyerGstin;
     }
 
     public String getVendorGstin() {

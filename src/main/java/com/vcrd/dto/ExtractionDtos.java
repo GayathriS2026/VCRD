@@ -28,7 +28,12 @@ public final class ExtractionDtos {
             BigDecimal sgstAmount,
             BigDecimal igstAmount,
             BigDecimal totalAmount,
+            List<ExtractedLine> lines,
             List<String> warnings) {
+    }
+
+    /** A table row accepted only when quantity x rate = amount, so stray numbers are never taken as lines. */
+    public record ExtractedLine(String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal amount) {
     }
 
     public record FieldMismatch(String field, String entered, String extracted) {

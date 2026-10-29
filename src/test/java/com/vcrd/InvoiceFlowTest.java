@@ -1,6 +1,9 @@
 package com.vcrd;
 
 import static org.hamcrest.Matchers.hasItems;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.when;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
@@ -21,6 +24,9 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.boot.test.mock.mockito.MockBean;
+
+import com.vcrd.component.MalwareScanner;
 import com.vcrd.config.DevDataSeeder;
 
 @SpringBootTest(properties = {
@@ -31,8 +37,8 @@ import com.vcrd.config.DevDataSeeder;
 @AutoConfigureMockMvc
 class InvoiceFlowTest {
 
-    /** Valid against PO 4500012345 item 10 (rate 500): 10 x 500 = 5000 + 900 tax = 5900. */
-    private static final String VALID = "\"baseAmount\":5000,\"taxAmount\":900,\"totalAmount\":5900,"
+    /** Valid against PO 4500012345 item 10 (rate 500): 10 x 500 = 5000 + 900 tax = 5900, intra-state CGST+SGST. */
+    private static final String VALID = "\"baseAmount\":5000,\"taxAmount\":900,\"cgstAmount\":450,\"sgstAmount\":450,\"totalAmount\":5900,"
             + "\"lines\":[{\"poItemNo\":10,\"quantity\":10,\"unitPrice\":500}]";
 
     @Autowired
@@ -40,6 +46,9 @@ class InvoiceFlowTest {
 
     @Autowired
     ObjectMapper json;
+
+    @MockBean
+    MalwareScanner malwareScanner;
 
     @Test
     void invoiceRunsThroughFullLifecycleToCleared() throws Exception {
@@ -144,6 +153,64 @@ class InvoiceFlowTest {
     }
 
     @Test
+    void largeInvoiceNeedsProjectThenFinanceApproval() throws Exception {
+        String site2 = login("site2.user");
+        String approver = login("approver");
+        String finance = login("finance.user");
+        // PO 4500012346: vendor in UP (09), plant in Maharashtra (27) -> inter-state IGST. 100 x 5000 = 5,00,000.
+        String id = createInvoice(site2, "4500012346", "INV-T-BIG", "\"baseAmount\":500000,\"taxAmount\":90000,"
+                + "\"igstAmount\":90000,\"totalAmount\":590000,"
+                + "\"lines\":[{\"poItemNo\":10,\"quantity\":100,\"unitPrice\":5000}]");
+        submitAndVerify(site2, id, "big invoice").andExpect(jsonPath("$.status").value("VALIDATION_PASSED"));
+
+        action(login("pmo.user"), id, "INITIATE_ZPARK")
+                .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"))
+                .andExpect(jsonPath("$.approval.name").value("Project approval"))
+                .andExpect(jsonPath("$.approval.totalLevels").value(2));
+
+        // finance cannot jump the queue
+        action(finance, id, "APPROVE").andExpect(status().isForbidden());
+
+        action(approver, id, "APPROVE")
+                .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"))
+                .andExpect(jsonPath("$.approval.name").value("Finance approval"))
+                .andExpect(jsonPath("$.approval.level").value(2));
+
+        // the project approver cannot also give the finance approval
+        action(approver, id, "APPROVE").andExpect(status().isForbidden());
+
+        action(finance, id, "APPROVE").andExpect(jsonPath("$.status").value("APPROVED"));
+    }
+
+    @Test
+    void wrongGstTypeForInterStateSupplyFailsValidation() throws Exception {
+        String site2 = login("site2.user");
+        String id = createInvoice(site2, "4500012346", "INV-T-GST", "\"baseAmount\":5000,\"taxAmount\":900,"
+                + "\"cgstAmount\":450,\"sgstAmount\":450,\"totalAmount\":5900,"
+                + "\"lines\":[{\"poItemNo\":10,\"quantity\":1,\"unitPrice\":5000}]");
+        submitAndVerify(site2, id, "gst type").andExpect(jsonPath("$.status").value("VALIDATION_FAILED"));
+
+        mvc.perform(get("/api/v1/invoices/" + id + "/validation").header("Authorization", site2))
+                .andExpect(jsonPath("$.issues[*].rule", hasItems("GST_TYPE")));
+    }
+
+    @Test
+    void infectedUploadIsRejected() throws Exception {
+        String site = login("site.user");
+        String id = createInvoice(site, "INV-T-VIRUS", VALID);
+        when(malwareScanner.findThreat(any())).thenReturn("Eicar-Test-Signature");
+        try {
+            MockMultipartFile file = new MockMultipartFile("file", "invoice.pdf", "application/pdf",
+                    "%PDF-1.4 infected".getBytes(StandardCharsets.UTF_8));
+            mvc.perform(multipart("/api/v1/invoices/" + id + "/documents").file(file).header("Authorization", site))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.code").value("MALWARE_DETECTED"));
+        } finally {
+            reset(malwareScanner);
+        }
+    }
+
+    @Test
     void duplicateInvoiceNumberIsBlocked() throws Exception {
         String site = login("site.user");
         createInvoice(site, "INV-T-DUP", VALID);
@@ -201,8 +268,12 @@ class InvoiceFlowTest {
     }
 
     private String createInvoice(String token, String invoiceNo, String amountsAndLines) throws Exception {
+        return createInvoice(token, "4500012345", invoiceNo, amountsAndLines);
+    }
+
+    private String createInvoice(String token, String po, String invoiceNo, String amountsAndLines) throws Exception {
         String response = mvc.perform(post("/api/v1/invoices").header("Authorization", token)
-                .contentType(MediaType.APPLICATION_JSON).content(invoiceJson("4500012345", invoiceNo, amountsAndLines)))
+                .contentType(MediaType.APPLICATION_JSON).content(invoiceJson(po, invoiceNo, amountsAndLines)))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("UPLOADED"))
                 .andReturn().getResponse().getContentAsString();

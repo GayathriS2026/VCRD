@@ -44,6 +44,7 @@ import java.util.Set;
 
 import org.springframework.stereotype.Component;
 
+import com.vcrd.config.WorkflowProperties;
 import com.vcrd.constants.InvoiceStatus;
 import com.vcrd.constants.Role;
 import com.vcrd.constants.WorkflowAction;
@@ -68,7 +69,14 @@ public class TransitionTable {
 
     private final Map<InvoiceStatus, Map<WorkflowAction, Transition>> table = new EnumMap<>(InvoiceStatus.class);
 
-    public TransitionTable() {
+    public TransitionTable(WorkflowProperties workflow) {
+        Role[] zpark = workflow.zparkRoles().toArray(Role[]::new);
+        Role[] miro = workflow.miroRoles().toArray(Role[]::new);
+        // Any approver role may act at PENDING_APPROVAL; WorkflowService checks the current level's roles.
+        Role[] approvers = workflow.allApproverRoles().toArray(Role[]::new);
+        Role[] returners = java.util.stream.Stream.concat(workflow.allApproverRoles().stream(), java.util.stream.Stream.of(Role.PMO))
+                .distinct().toArray(Role[]::new);
+
         // Phase 2-3: submit, then user verifies extracted fields
         add(UPLOADED, SUBMIT, PENDING_VERIFICATION, SITE);
         add(RETURNED, SUBMIT, PENDING_VERIFICATION, SITE);
@@ -82,7 +90,7 @@ public class TransitionTable {
         add(VALIDATION_FAILED, REJECT, REJECTED, Role.PMO);
 
         // Phase 5: Z PARK
-        add(VALIDATION_PASSED, INITIATE_ZPARK, ZPARK_IN_PROGRESS, Role.PMO);
+        add(VALIDATION_PASSED, INITIATE_ZPARK, ZPARK_IN_PROGRESS, zpark);
         add(ZPARK_IN_PROGRESS, SAP_CONFIRMED, ZPARK_CREATED, SYSTEM);
         add(ZPARK_IN_PROGRESS, SAP_UNCERTAIN, ZPARK_UNCERTAIN, SYSTEM);
         add(ZPARK_IN_PROGRESS, SAP_REJECTED, VALIDATION_FAILED, SYSTEM);
@@ -96,10 +104,10 @@ public class TransitionTable {
         add(AWAITING_GR, GR_CONFIRMED, PENDING_APPROVAL, SYSTEM);
 
         // Phase 7: approvals, then MIRO
-        add(PENDING_APPROVAL, APPROVE, APPROVED, Role.APPROVER);
-        add(PENDING_APPROVAL, REJECT, REJECTED, Role.APPROVER);
-        add(PENDING_APPROVAL, RETURN, RETURNED, Role.APPROVER, Role.PMO);
-        add(APPROVED, POST_MIRO, MIRO_IN_PROGRESS, Role.PMO, Role.FINANCE);
+        add(PENDING_APPROVAL, APPROVE, APPROVED, approvers);
+        add(PENDING_APPROVAL, REJECT, REJECTED, approvers);
+        add(PENDING_APPROVAL, RETURN, RETURNED, returners);
+        add(APPROVED, POST_MIRO, MIRO_IN_PROGRESS, miro);
         add(MIRO_IN_PROGRESS, SAP_CONFIRMED, AWAITING_CLEARING, SYSTEM);
         add(MIRO_IN_PROGRESS, SAP_UNCERTAIN, MIRO_UNCERTAIN, SYSTEM);
         add(MIRO_IN_PROGRESS, SAP_REJECTED, APPROVED, SYSTEM);

@@ -31,6 +31,9 @@ import com.vcrd.service.AuditService;
 import com.vcrd.exception.BusinessException;
 import com.vcrd.exception.NotFoundException;
 import com.vcrd.constants.Role;
+import com.vcrd.component.MalwareScanner;
+import com.vcrd.config.WorkflowProperties;
+import com.vcrd.dto.InvoiceDtos.ApprovalStep;
 import com.vcrd.dto.InvoiceDtos.ClearingInfo;
 import com.vcrd.dto.InvoiceDtos.DocumentResponse;
 import com.vcrd.dto.InvoiceDtos.ParkingInfo;
@@ -51,6 +54,8 @@ import jakarta.persistence.criteria.Predicate;
 @Service
 public class InvoiceService {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(InvoiceService.class);
+
     /** Accepted upload types until the business confirms the final list. */
     private static final Map<String, String> ALLOWED_TYPES = Map.of(
             "application/pdf", "pdf",
@@ -66,10 +71,13 @@ public class InvoiceService {
     private final DocumentStorage storage;
     private final AuditService audit;
     private final CurrentUserProvider currentUser;
+    private final WorkflowProperties workflowProperties;
+    private final MalwareScanner malwareScanner;
 
     public InvoiceService(InvoiceRepository invoices, InvoiceDocumentRepository documents,
             InvoiceAccessPolicy accessPolicy, PoService poService, DocumentStorage storage, AuditService audit,
-            CurrentUserProvider currentUser) {
+            CurrentUserProvider currentUser, WorkflowProperties workflowProperties,
+            MalwareScanner malwareScanner) {
         this.invoices = invoices;
         this.documents = documents;
         this.accessPolicy = accessPolicy;
@@ -77,6 +85,8 @@ public class InvoiceService {
         this.storage = storage;
         this.audit = audit;
         this.currentUser = currentUser;
+        this.workflowProperties = workflowProperties;
+        this.malwareScanner = malwareScanner;
     }
 
     @Transactional
@@ -143,6 +153,7 @@ public class InvoiceService {
         if (!matchesSignature(content, extension)) {
             throw new BusinessException("FILE_CONTENT_MISMATCH", "File content does not match its declared type");
         }
+        scanForMalware(invoiceId, content, file.getOriginalFilename());
         String sha256 = sha256(content);
         if (documents.existsBySha256AndInvoiceIdNot(sha256, invoiceId)) {
             throw new BusinessException("DUPLICATE_DOCUMENT",
@@ -227,10 +238,37 @@ public class InvoiceService {
                 invoice.getBaseAmount(), invoice.getTaxAmount(), invoice.getTotalAmount(),
                 invoice.getCgstAmount(), invoice.getSgstAmount(), invoice.getIgstAmount(), invoice.getOtherTaxes(),
                 invoice.getOtherCharges(), invoice.getInvoiceReceiptDate(), invoice.getRemarks(),
-                ParkingInfo.from(invoice), ClearingInfo.from(invoice), InvoiceDtos.SapRefs.from(invoice),
+                ParkingInfo.from(invoice), ClearingInfo.from(invoice), InvoiceDtos.SapRefs.from(invoice), approvalStep(invoice),
                 invoice.getMatchStatus(), invoice.getMatchCheckedAt(), invoice.getStatus(),
                 invoice.getCreatedBy(), invoice.getCreatedAt(), invoice.getUpdatedAt(), invoice.getVersion(), lines,
                 docs);
+    }
+
+    private void scanForMalware(UUID invoiceId, byte[] content, String filename) {
+        String threat;
+        try {
+            threat = malwareScanner.findThreat(content);
+        } catch (MalwareScanner.ScanUnavailableException e) {
+            log.error("Malware scan unavailable; upload refused", e);
+            throw new BusinessException("MALWARE_SCAN_UNAVAILABLE",
+                    "The file could not be scanned for malware right now; please try again later");
+        }
+        if (threat != null) {
+            // Recorded in a separate transaction so the audit entry survives the rejected upload.
+            audit.recordInNewTransaction("INVOICE", invoiceId, "MALWARE_BLOCKED",
+                    Map.of("threat", threat, "filename", String.valueOf(filename)));
+            throw new BusinessException("MALWARE_DETECTED", "The file was rejected: malware detected (" + threat + ")");
+        }
+    }
+
+    private ApprovalStep approvalStep(Invoice invoice) {
+        if (invoice.getStatus() != InvoiceStatus.PENDING_APPROVAL) {
+            return null;
+        }
+        List<WorkflowProperties.ApprovalLevel> levels = workflowProperties.levelsFor(invoice.getTotalAmount());
+        int index = Math.min(invoice.getApprovalLevel(), levels.size() - 1);
+        WorkflowProperties.ApprovalLevel level = levels.get(index);
+        return new ApprovalStep(level.name(), index + 1, levels.size(), level.roles());
     }
 
     private InvoiceSummary toSummary(Invoice i) {

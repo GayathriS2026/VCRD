@@ -49,3 +49,14 @@ Mock SAP POs: `4500012345` (SITE-01), `4500012346` (SITE-02), `4500012347` (SITE
 - Real SAP gateway, JACK PARK, MIGO/MIRO, reconciliation
 - Extraction (OCR), validation rule engine, exception module
 - Final workflow sequence (`TransitionTable` is interim), notifications, reports, SSO
+
+## Configuration for shared environments
+
+| Setting | Env variable | Notes |
+|---|---|---|
+| `vcrd.auth.mode` | `VCRD_AUTH_MODE` | `keycloak` in every shared environment; `local` (demo users) for dev only |
+| `keycloak.*` | `KEYCLOAK_SECRET` | Realm `isolarsight`, client `keycloak.resource`. Roles are **client roles** on that client, named like `PMO`, `SITE_USER`, `APPROVER`, `FINANCE`. Optional `sites` token claim (user attribute mapper) sets the user's sites; otherwise sites are assigned in the portal DB |
+| `vcrd.malware.mode` | `VCRD_MALWARE_MODE` | `clamav` outside local dev (uploads are refused if clamd is unreachable); host/port via `CLAMAV_HOST` / `CLAMAV_PORT` |
+| `vcrd.ocr.tessdata-path` | `VCRD_TESSDATA_PATH` | Folder containing `eng.traineddata`; blank disables OCR for scanned invoices |
+| `vcrd.workflow.*` | | Who starts Z PARK / MIRO and the approval levels (by invoice amount) |
+| `vcrd.sap.mode` | | `mock` until the real SAP connector is built |

@@ -66,6 +66,23 @@ public class AppUser {
         this.sites = new HashSet<>(sites);
     }
 
+    /** Marker for users who sign in through Keycloak; never matches a password. */
+    public static final String EXTERNAL_PASSWORD = "{external}";
+
+    /** Keeps the local copy of a Keycloak user in line with their token. */
+    public boolean syncFromIdentityProvider(String displayName, String email, Set<Role> roles) {
+        boolean changed = !java.util.Objects.equals(this.displayName, displayName)
+                || !java.util.Objects.equals(this.email, email) || !this.roles.equals(roles);
+        this.displayName = displayName;
+        this.email = email;
+        this.roles = new HashSet<>(roles);
+        return changed;
+    }
+
+    public void replaceSites(Set<String> sites) {
+        this.sites = new HashSet<>(sites);
+    }
+
     public UUID getId() {
         return id;
     }

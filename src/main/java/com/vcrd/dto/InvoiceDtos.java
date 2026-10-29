@@ -4,6 +4,7 @@ import com.vcrd.entity.Invoice;
 import com.vcrd.entity.InvoiceDocument;
 import com.vcrd.constants.InvoiceStatus;
 import com.vcrd.constants.MatchStatus;
+import com.vcrd.constants.Role;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -70,6 +71,7 @@ public final class InvoiceDtos {
             ParkingInfo parking,
             ClearingInfo clearing,
             SapRefs sap,
+            ApprovalStep approval,
             MatchStatus matchStatus,
             Instant matchCheckedAt,
             InvoiceStatus status,
@@ -88,6 +90,10 @@ public final class InvoiceDtos {
             return new ParkingInfo(i.getParkedDocNo(), i.getParkedBySapId(), i.getParkedByName(), i.getParkedAt(),
                     i.getParkChangedBySapId(), i.getParkChangedByName(), i.getParkChangedAt());
         }
+    }
+
+    /** Present while the invoice waits for approval: which level, out of how many, and who may act. */
+    public record ApprovalStep(String name, int level, int totalLevels, List<Role> roles) {
     }
 
     public record SapRefs(String zparkCorrelationId, String parkedFiscalYear, String grMaterialDocNo,

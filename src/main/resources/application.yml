@@ -14,7 +14,28 @@ spring:
       max-file-size: 20MB
       max-request-size: 25MB
 
+keycloak:
+  realm: isolarsight
+  auth-server-url: https://jakson.energxiq.com/auth
+  resource: hse
+  # Not needed to validate bearer tokens (signatures are checked against Keycloak's public keys).
+  # Kept for calls that act as the client itself, e.g. token introspection or the admin API.
+  credentials:
+    secret: ${KEYCLOAK_SECRET:}
+  bearer-only: true
+  use-resource-role-mappings: true
+
 vcrd:
+  auth:
+    # keycloak = tokens from Keycloak (use in every shared environment); local = dev login with demo users.
+    mode: ${VCRD_AUTH_MODE:local}
+  malware:
+    # clamav = scan every upload with clamd (uploads refused if it is unreachable); disabled = local dev only.
+    mode: ${VCRD_MALWARE_MODE:disabled}
+    clamav:
+      host: ${CLAMAV_HOST:localhost}
+      port: ${CLAMAV_PORT:3310}
+      timeout: PT30S
   jwt:
     # Dev-only secret (min 32 chars). Override with VCRD_JWT_SECRET in any shared environment.
     secret: ${VCRD_JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
@@ -31,6 +52,18 @@ vcrd:
     mode: mock
     # How long an uncertain SAP request may stay unconfirmed before "not found in SAP" is trusted and a retry allowed.
     reconcile-after: PT5M
+  # Who performs which step. PROPOSED defaults: confirm with the business before go-live.
+  workflow:
+    zpark-roles: [PMO]
+    miro-roles: [PMO, FINANCE]
+    # In order. A level applies when invoice total >= min-amount. Nobody may approve two levels of one invoice.
+    approval-levels:
+      - name: Project approval
+        roles: [APPROVER]
+        min-amount: 0
+      - name: Finance approval
+        roles: [FINANCE]
+        min-amount: 500000
   jobs:
     enabled: true
     invoice-interval: PT1M

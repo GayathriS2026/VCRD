@@ -22,6 +22,8 @@ import com.vcrd.component.InvoiceTextReader;
 import com.vcrd.component.InvoiceTextReader.ReadText;
 import com.vcrd.constants.MatchStatus;
 import com.vcrd.dto.ExtractionDtos.ExtractedInvoice;
+import com.vcrd.dto.ExtractionDtos.ExtractedLine;
+import com.vcrd.entity.InvoiceLine;
 import com.vcrd.dto.ExtractionDtos.FieldMismatch;
 import com.vcrd.dto.ExtractionDtos.VerificationResult;
 import com.vcrd.entity.Invoice;
@@ -135,11 +137,41 @@ public class InvoiceVerificationService {
         missing |= money("sgstAmount", invoice.getSgstAmount(), x.sgstAmount(), mismatches);
         missing |= money("igstAmount", invoice.getIgstAmount(), x.igstAmount(), mismatches);
         missing |= money("totalAmount", invoice.getTotalAmount(), x.totalAmount(), mismatches);
+        missing |= compareLines(invoice, x, mismatches);
 
         MatchStatus status = !mismatches.isEmpty() ? MatchStatus.MISMATCH
                 : (missing || !x.warnings().isEmpty()) ? MatchStatus.NEEDS_REVIEW
                 : MatchStatus.MATCHED;
         return new VerificationResult(status, x, mismatches);
+    }
+
+    /**
+     * Each entered line must appear in the document with the same quantity and rate. Returns true when the
+     * document's lines could not be read at all (manual review needed rather than a mismatch).
+     */
+    private static boolean compareLines(Invoice invoice, ExtractedInvoice x, List<FieldMismatch> out) {
+        if (x.lines() == null || x.lines().isEmpty()) {
+            return !invoice.getLines().isEmpty();
+        }
+        List<ExtractedLine> unmatched = new ArrayList<>(x.lines());
+        for (InvoiceLine entered : invoice.getLines()) {
+            ExtractedLine match = unmatched.stream()
+                    .filter(e -> e.quantity().compareTo(entered.getQuantity()) == 0
+                            && e.unitPrice().subtract(entered.getUnitPrice()).abs()
+                                    .compareTo(InvoiceFieldParser.TOLERANCE) <= 0)
+                    .findFirst().orElse(null);
+            if (match == null) {
+                out.add(new FieldMismatch("line " + entered.getPoLine().getItemNo(),
+                        entered.getQuantity() + " x " + entered.getUnitPrice(), "no matching row in document"));
+            } else {
+                unmatched.remove(match);
+            }
+        }
+        for (ExtractedLine extra : unmatched) {
+            out.add(new FieldMismatch("document line", null,
+                    extra.quantity() + " x " + extra.unitPrice() + " (" + extra.description() + ")"));
+        }
+        return false;
     }
 
     /** Returns true when the value was entered but could not be extracted. Zero and absent are treated alike. */

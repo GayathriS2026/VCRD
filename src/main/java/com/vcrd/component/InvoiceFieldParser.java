@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 import org.springframework.stereotype.Component;
 
 import com.vcrd.dto.ExtractionDtos.ExtractedInvoice;
+import com.vcrd.dto.ExtractionDtos.ExtractedLine;
 import com.vcrd.dto.ExtractionDtos.TextSource;
 import com.vcrd.util.GstinValidator;
 
@@ -46,6 +47,13 @@ public class InvoiceFieldParser {
             label("grand\\s*total|total\\s*invoice\\s*(?:value|amount)|invoice\\s*(?:total|value)"),
             label("net\\s*payable|amount\\s*payable|total\\s*payable|total\\s*amount"),
             Pattern.compile("(?i)^(?!.*\\b(?:sub|taxable|tax|qty|quantity)\\b).*\\btotal\\b"));
+
+    /** Any number, with optional Indian/Western thousands separators and decimals. */
+    private static final Pattern NUMBER = Pattern.compile("(?<![\\w.])\\d{1,3}(?:,\\d{2,3})+(?:\\.\\d+)?(?![\\w%])"
+            + "|(?<![\\w.,])\\d+(?:\\.\\d+)?(?![\\w%,])");
+    /** Rows that carry totals or taxes, never line items. */
+    private static final Pattern SUMMARY_ROW = label(
+            "total|sub\\s*-?\\s*total|cgst|sgst|igst|utgst|tax|round(?:ed)?\\s*off|amount\\s*in\\s*words|balance");
 
     private static final List<DateTimeFormatter> DATE_FORMATS = List.of(
             fmt("d/M/uuuu"), fmt("d-M-uuuu"), fmt("d.M.uuuu"),
@@ -87,9 +95,67 @@ public class InvoiceFieldParser {
                         + "); other taxes/charges may be present");
             }
         }
+        List<ExtractedLine> items = findLineItems(lines);
+        if (items.isEmpty()) {
+            warnings.add("No line items could be read (quantity x rate = amount not found on any row)");
+        } else if (base != null) {
+            BigDecimal itemsTotal = items.stream().map(ExtractedLine::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+            if (itemsTotal.subtract(base).abs().compareTo(TOLERANCE) > 0) {
+                warnings.add("Line items total " + itemsTotal + " does not equal base amount " + base
+                        + "; some rows may not have been read");
+            }
+        }
         if (source == TextSource.OCR) warnings.add("Read by OCR; verify values against the document");
 
-        return new ExtractedInvoice(source, invoiceNo, date, gstins, base, cgst, sgst, igst, total, warnings);
+        return new ExtractedInvoice(source, invoiceNo, date, gstins, base, cgst, sgst, igst, total, items, warnings);
+    }
+
+    /**
+     * A row is a line item when three of its numbers satisfy quantity x rate = amount (within rounding),
+     * with the amount being the last of the three. HSN codes, serial numbers and tax rates on the row
+     * cannot satisfy that equation by chance in practice, so they are ignored.
+     */
+    private static List<ExtractedLine> findLineItems(List<String> lines) {
+        List<ExtractedLine> items = new ArrayList<>();
+        for (String line : lines) {
+            if (SUMMARY_ROW.matcher(line).find()) {
+                continue;
+            }
+            Matcher m = NUMBER.matcher(line);
+            List<BigDecimal> numbers = new ArrayList<>();
+            while (m.find()) {
+                numbers.add(new BigDecimal(m.group().replace(",", "")));
+            }
+            ExtractedLine item = matchRow(line, numbers);
+            if (item != null) {
+                items.add(item);
+            }
+        }
+        return items;
+    }
+
+    private static ExtractedLine matchRow(String line, List<BigDecimal> numbers) {
+        for (int k = numbers.size() - 1; k >= 2; k--) {
+            BigDecimal amount = numbers.get(k);
+            if (amount.signum() <= 0) continue;
+            for (int j = k - 1; j >= 1; j--) {
+                for (int i = j - 1; i >= 0; i--) {
+                    BigDecimal qty = numbers.get(i);
+                    BigDecimal rate = numbers.get(j);
+                    if (qty.signum() > 0 && qty.multiply(rate).subtract(amount).abs().compareTo(TOLERANCE) <= 0) {
+                        return new ExtractedLine(description(line), qty, rate, amount);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Text of the row with numbers removed, e.g. "1 Cable tray 7308 100 ..." -> "Cable tray". */
+    private static String description(String line) {
+        String text = NUMBER.matcher(line).replaceAll(" ").replaceAll("[^\\p{L}\\s\\-/&().]", " ")
+                .replaceAll("\\s+", " ").strip();
+        return text.isEmpty() ? null : text;
     }
 
     private static String findInvoiceNo(List<String> lines) {

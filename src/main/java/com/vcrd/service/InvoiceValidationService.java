@@ -19,6 +19,7 @@ import com.vcrd.entity.InvoiceLine;
 import com.vcrd.entity.PoLine;
 import com.vcrd.entity.PurchaseOrder;
 import com.vcrd.repository.InvoiceRepository;
+import com.vcrd.util.GstinValidator;
 
 /**
  * Phase 4: matches the invoice against fresh SAP PO data. Every failed mandatory rule is recorded with
@@ -62,6 +63,7 @@ public class InvoiceValidationService {
         checkLines(invoice, issues);
         checkAmounts(invoice, issues);
         checkGstStructure(invoice, issues);
+        checkGstType(po, invoice, issues);
 
         return new ValidationResult(issues.isEmpty(), issues, Instant.now());
     }
@@ -145,6 +147,42 @@ public class InvoiceValidationService {
         if (cgst.compareTo(sgst) != 0) {
             issues.add(new ValidationIssue("GST_STRUCTURE", "sgstAmount", str(cgst), str(sgst),
                     "CGST and SGST must be equal"));
+        }
+    }
+
+    /**
+     * GST type follows the place of supply: vendor and buyer in the same state (first two GSTIN digits)
+     * means CGST + SGST; different states means IGST. Skipped when SAP does not provide both GSTINs.
+     */
+    private void checkGstType(PurchaseOrder po, Invoice invoice, List<ValidationIssue> issues) {
+        String vendor = po.getVendorGstin();
+        String buyer = po.getBuyerGstin();
+        if (vendor == null || buyer == null) {
+            return;
+        }
+        if (!GstinValidator.isValid(vendor)) {
+            issues.add(new ValidationIssue("VENDOR_GSTIN", "vendorGstin", "valid GSTIN", vendor,
+                    "Vendor GSTIN from SAP fails format/check-digit validation"));
+            return;
+        }
+        BigDecimal cgstSgst = nz(invoice.getCgstAmount()).add(nz(invoice.getSgstAmount()));
+        BigDecimal igst = nz(invoice.getIgstAmount());
+        if (cgstSgst.signum() == 0 && igst.signum() == 0) {
+            if (nz(invoice.getTaxAmount()).signum() > 0) {
+                issues.add(new ValidationIssue("GST_SPLIT", "cgstAmount/sgstAmount/igstAmount", "GST split",
+                        "taxAmount " + str(invoice.getTaxAmount()), "Enter the CGST/SGST/IGST breakup"));
+            }
+            return;
+        }
+        boolean intraState = vendor.substring(0, 2).equals(buyer.substring(0, 2));
+        if (intraState && igst.signum() > 0) {
+            issues.add(new ValidationIssue("GST_TYPE", "igstAmount", "CGST + SGST (same state " +
+                    vendor.substring(0, 2) + ")", "IGST " + str(igst),
+                    "Vendor and buyer are in the same state; IGST is not applicable"));
+        } else if (!intraState && cgstSgst.signum() > 0) {
+            issues.add(new ValidationIssue("GST_TYPE", "cgstAmount", "IGST (states " + vendor.substring(0, 2) + " -> "
+                    + buyer.substring(0, 2) + ")", "CGST + SGST " + str(cgstSgst),
+                    "Vendor and buyer are in different states; CGST/SGST are not applicable"));
         }
     }
 

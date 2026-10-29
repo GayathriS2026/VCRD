@@ -42,6 +42,12 @@ public class AuditService {
                 toJson(details), MDC.get(CorrelationIdFilter.MDC_KEY)));
     }
 
+    /** For events that must be kept even though the surrounding operation is rejected (e.g. blocked malware). */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordInNewTransaction(String entityType, UUID entityId, String action, Map<String, ?> details) {
+        record(entityType, entityId, action, details);
+    }
+
     /** For changes recorded by the system (validation engine / SAP connector) with no logged-in user. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void recordSystem(String entityType, UUID entityId, String action, Map<String, ?> details) {

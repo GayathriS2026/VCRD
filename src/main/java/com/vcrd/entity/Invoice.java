@@ -144,6 +144,10 @@ public class Invoice {
     @Column(columnDefinition = "TEXT")
     private String sapMessages;
 
+    /** Index into the approval levels that apply to this invoice (see WorkflowProperties). */
+    @Column(nullable = false)
+    private int approvalLevel;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private InvoiceStatus status = InvoiceStatus.UPLOADED;
@@ -277,6 +281,19 @@ public class Invoice {
         this.miroFiscalYear = fiscalYear;
         this.miroValue = miroValue;
         touch();
+    }
+
+    public void startApprovalChain() {
+        this.approvalLevel = 0;
+    }
+
+    public void advanceApprovalLevel() {
+        this.approvalLevel++;
+        touch();
+    }
+
+    public int getApprovalLevel() {
+        return approvalLevel;
     }
 
     public void recordSapMessages(String sapMessages) {

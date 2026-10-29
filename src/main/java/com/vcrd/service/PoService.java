@@ -64,7 +64,7 @@ public class PoService {
         po.updateHeader(source.vendorCode(), source.vendorName(), source.companyCode(), source.siteCode(),
                 source.currency(), source.releaseStatus());
         po.updateCommercialDetails(source.purchaseGroup(), source.buyerSapId(), source.paymentTermCode(),
-                source.paymentTermText(), source.wbsCode(), source.vendorGstin());
+                source.paymentTermText(), source.wbsCode(), source.vendorGstin(), source.buyerGstin());
         // Lines are updated in place, never deleted: invoice lines may already reference them.
         for (SapPoLine sapLine : source.lines()) {
             PoLine line = po.findLine(sapLine.itemNo()).orElseGet(() -> {

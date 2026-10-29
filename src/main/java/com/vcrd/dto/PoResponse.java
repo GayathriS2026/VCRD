@@ -22,6 +22,7 @@ public record PoResponse(
         String paymentTermText,
         String wbsCode,
         String vendorGstin,
+        String buyerGstin,
         List<Line> lines) {
 
     public record Line(int itemNo, String materialCode, String description, BigDecimal orderedQty, String uom,
@@ -32,7 +33,7 @@ public record PoResponse(
         return new PoResponse(po.getPoNumber(), po.getVendorCode(), po.getVendorName(), po.getCompanyCode(),
                 po.getSiteCode(), po.getCurrency(), po.getTotalValue(), po.getReleaseStatus(), po.getLastSyncedAt(),
                 po.getPurchaseGroup(), po.getBuyerSapId(), po.getPaymentTermCode(), po.getPaymentTermText(),
-                po.getWbsCode(), po.getVendorGstin(),
+                po.getWbsCode(), po.getVendorGstin(), po.getBuyerGstin(),
                 po.getLines().stream()
                         .map(l -> new Line(l.getItemNo(), l.getMaterialCode(), l.getDescription(), l.getOrderedQty(),
                                 l.getUom(), l.getUnitPrice()))

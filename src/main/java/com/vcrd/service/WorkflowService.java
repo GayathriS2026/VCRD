@@ -18,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.vcrd.service.AuditService;
+import com.vcrd.config.WorkflowProperties;
+import com.vcrd.config.WorkflowProperties.ApprovalLevel;
 import com.vcrd.exception.BusinessException;
 import com.vcrd.exception.NotFoundException;
 import com.vcrd.repository.InvoiceRepository;
@@ -42,6 +44,8 @@ public class WorkflowService {
 
     private static final Set<WorkflowAction> REQUIRE_REMARK = Set.of(WorkflowAction.REJECT, WorkflowAction.RETURN,
             WorkflowAction.OVERRIDE_EXCEPTION);
+    /** Decisions taken by the current approval level's approvers. */
+    private static final Set<WorkflowAction> LEVEL_DECISIONS = Set.of(WorkflowAction.APPROVE, WorkflowAction.REJECT);
     private static final Set<WorkflowAction> DECISIONS = Set.of(WorkflowAction.APPROVE, WorkflowAction.REJECT,
             WorkflowAction.OVERRIDE_EXCEPTION);
 
@@ -54,10 +58,12 @@ public class WorkflowService {
     private final WorkflowHistoryRepository history;
     private final AuditService audit;
     private final CurrentUserProvider currentUser;
+    private final WorkflowProperties workflowProperties;
 
     public WorkflowService(InvoiceAccessPolicy accessPolicy, InvoiceRepository invoices, InvoiceStateChanger stateChanger,
             InvoiceDocumentRepository documents, InvoiceService invoiceService, TransitionTable transitions,
-            WorkflowHistoryRepository history, AuditService audit, CurrentUserProvider currentUser) {
+            WorkflowHistoryRepository history, AuditService audit, CurrentUserProvider currentUser,
+            WorkflowProperties workflowProperties) {
         this.accessPolicy = accessPolicy;
         this.invoices = invoices;
         this.stateChanger = stateChanger;
@@ -67,6 +73,7 @@ public class WorkflowService {
         this.history = history;
         this.audit = audit;
         this.currentUser = currentUser;
+        this.workflowProperties = workflowProperties;
     }
 
     @Transactional
@@ -115,13 +122,22 @@ public class WorkflowService {
         } else if (action == WorkflowAction.POST_MIRO) {
             invoice.startMiro(UUID.randomUUID().toString());
         }
-        stateChanger.apply(invoice, transition.to());
-        history.save(new WorkflowHistory(invoiceId, from, transition.to(), action, actorId, remark));
+        InvoiceStatus to = transition.to();
+        if (action == WorkflowAction.APPROVE
+                && invoice.getApprovalLevel() + 1 < workflowProperties.levelsFor(invoice.getTotalAmount()).size()) {
+            // More levels to go: stay in PENDING_APPROVAL with the next level's approvers.
+            invoice.advanceApprovalLevel();
+            to = InvoiceStatus.PENDING_APPROVAL;
+        } else if (to == InvoiceStatus.PENDING_APPROVAL && from != InvoiceStatus.PENDING_APPROVAL) {
+            invoice.startApprovalChain();
+        }
+        stateChanger.apply(invoice, to);
+        history.save(new WorkflowHistory(invoiceId, from, to, action, actorId, remark));
 
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("action", action.name());
         details.put("from", from.name());
-        details.put("to", transition.to().name());
+        details.put("to", to.name());
         if (remark != null) {
             details.put("remark", remark);
         }
@@ -147,8 +163,43 @@ public class WorkflowService {
         return transitions.from(invoice.getStatus()).entrySet().stream()
                 .filter(e -> user.hasAnyRole(e.getValue().allowedRoles()))
                 .filter(e -> !DECISIONS.contains(e.getKey()) || !invoice.getCreatedBy().equals(user.id()))
+                .filter(e -> !LEVEL_DECISIONS.contains(e.getKey()) || approvalDecisionProblem(invoice, user) == null)
                 .map(Map.Entry::getKey)
                 .toList();
+    }
+
+    /** The approval level the invoice is currently waiting on. */
+    public ApprovalLevel currentApprovalLevel(Invoice invoice) {
+        List<ApprovalLevel> levels = workflowProperties.levelsFor(invoice.getTotalAmount());
+        return levels.get(Math.min(invoice.getApprovalLevel(), levels.size() - 1));
+    }
+
+    /** Why the user may not approve/reject at the current level, or null if they may. */
+    private String approvalDecisionProblem(Invoice invoice, CurrentUser user) {
+        ApprovalLevel level = currentApprovalLevel(invoice);
+        if (!user.hasAnyRole(level.roles())) {
+            return "This invoice is waiting for " + level.name() + " (" + level.roles() + ")";
+        }
+        if (approvedInCurrentCycle(invoice.getId()).contains(user.id())) {
+            return "You already approved an earlier level of this invoice";
+        }
+        return null;
+    }
+
+    /** Users who approved since the invoice last entered PENDING_APPROVAL (a return starts a new cycle). */
+    private Set<UUID> approvedInCurrentCycle(UUID invoiceId) {
+        List<WorkflowHistory> rows = history.findByInvoiceIdOrderByOccurredAt(invoiceId);
+        Set<UUID> approvers = new java.util.HashSet<>();
+        for (int i = rows.size() - 1; i >= 0; i--) {
+            WorkflowHistory row = rows.get(i);
+            if (row.getAction() == WorkflowAction.APPROVE) {
+                approvers.add(row.getActorId());
+            }
+            if (row.getToStatus() == InvoiceStatus.PENDING_APPROVAL && row.getFromStatus() != InvoiceStatus.PENDING_APPROVAL) {
+                break;
+            }
+        }
+        return approvers;
     }
 
     private void checkGuards(Invoice invoice, WorkflowAction action, String remark, CurrentUser user) {
@@ -176,6 +227,12 @@ public class WorkflowService {
         }
         if (DECISIONS.contains(action) && invoice.getCreatedBy().equals(user.id())) {
             throw new BusinessException("SEGREGATION_OF_DUTIES", "You cannot approve or reject your own invoice");
+        }
+        if (LEVEL_DECISIONS.contains(action) && invoice.getStatus() == InvoiceStatus.PENDING_APPROVAL) {
+            String problem = approvalDecisionProblem(invoice, user);
+            if (problem != null) {
+                throw new AccessDeniedException(problem);
+            }
         }
     }
 }
