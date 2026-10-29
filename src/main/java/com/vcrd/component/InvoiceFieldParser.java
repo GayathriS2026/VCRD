@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
 
 import org.springframework.stereotype.Component;
 
+import com.vcrd.dto.ExtractionDtos.DocumentType;
 import com.vcrd.dto.ExtractionDtos.ExtractedInvoice;
 import com.vcrd.dto.ExtractionDtos.ExtractedLine;
 import com.vcrd.dto.ExtractionDtos.TextSource;
@@ -90,30 +91,49 @@ public class InvoiceFieldParser {
             fmt("d/M/uu"), fmt("d-M-uu"), fmt("d.M.uu"),
             fmt("d-MMM-uuuu"), fmt("d/MMM/uuuu"), fmt("d-MMM-uu"));
 
+    /** Header fields of one page (or of the whole text). */
+    private record Fields(String invoiceNo, LocalDate date, BigDecimal base, BigDecimal cgst, BigDecimal sgst,
+            BigDecimal igst, BigDecimal total, boolean baseDerived) {
+    }
+
+    /**
+     * Pages are separated by form feeds (see {@link InvoiceTextReader}). Each page is classified and read on
+     * its own; for every header field the value found on most pages wins (an OCR misread rarely repeats on
+     * several documents), ties going to the tax invoice, which is authoritative for invoice amounts.
+     * Fields found on no single page are read from the whole text.
+     */
     public ExtractedInvoice parse(String text, TextSource source) {
         List<String> lines = text.lines().map(String::strip).filter(l -> !l.isEmpty()).toList();
         List<String> warnings = new ArrayList<>();
 
-        String invoiceNo = findInvoiceNo(lines);
-        LocalDate date = findDate(lines);
-        List<String> gstins = findGstins(text, warnings);
-        BigDecimal base = amount(lines, BASE);
-        BigDecimal cgst = amount(lines, CGST);
-        BigDecimal sgst = amount(lines, SGST);
-        BigDecimal igst = amount(lines, IGST);
-        BigDecimal total = null;
-        for (Pattern p : TOTALS) {
-            if ((total = amount(lines, p)) != null) break;
-        }
-
-        // Summary sheets show total and GST but not the taxable value. Derive it only when the result is
-        // itself printed in the document, so a misread total or tax can never produce an invented base.
-        if (base == null && total != null && (cgst != null || sgst != null || igst != null)) {
-            BigDecimal derived = total.subtract(nz(cgst)).subtract(nz(sgst)).subtract(nz(igst));
-            if (derived.signum() > 0 && amountPrinted(lines, derived)) {
-                base = derived;
-                warnings.add("Base amount derived as total - GST (" + derived + ") and found in the document");
+        List<BundleDetailsExtractor.Page> pages = new ArrayList<>();
+        String[] rawPages = text.split("\f");
+        for (int i = 0; i < rawPages.length; i++) {
+            List<String> pageLines = rawPages[i].lines().map(String::strip).filter(l -> !l.isEmpty()).toList();
+            if (!pageLines.isEmpty()) {
+                pages.add(new BundleDetailsExtractor.Page(i + 1, BundleDetailsExtractor.classify(pageLines), pageLines));
             }
+        }
+        List<Fields> perPage = new ArrayList<>();
+        if (pages.size() > 1) {
+            pages.stream().sorted(java.util.Comparator.comparing(p -> p.type() != DocumentType.TAX_INVOICE))
+                    .forEach(p -> perPage.add(fields(p.lines())));
+        }
+        Fields whole = fields(lines);
+
+        String invoiceNo = pick(perPage, Fields::invoiceNo, whole.invoiceNo());
+        LocalDate date = pick(perPage, Fields::date, whole.date());
+        List<String> gstins = findGstins(text, warnings);
+        BigDecimal base = pickAmount(perPage, Fields::base, whole.base());
+        BigDecimal cgst = pickAmount(perPage, Fields::cgst, whole.cgst());
+        BigDecimal sgst = pickAmount(perPage, Fields::sgst, whole.sgst());
+        BigDecimal igst = pickAmount(perPage, Fields::igst, whole.igst());
+        BigDecimal total = pickAmount(perPage, Fields::total, whole.total());
+        boolean baseDerivedOnly = perPage.isEmpty() ? whole.baseDerived()
+                : perPage.stream().filter(f -> f.base() != null && base != null && f.base().compareTo(base) == 0)
+                        .allMatch(Fields::baseDerived);
+        if (base != null && baseDerivedOnly) {
+            warnings.add("Base amount derived as total - GST (" + base + ") and found in the document");
         }
 
         if (invoiceNo == null) warnings.add("Invoice number not found");
@@ -135,7 +155,14 @@ public class InvoiceFieldParser {
                         + "); other taxes/charges may be present");
             }
         }
-        List<ExtractedLine> items = findLineItems(lines);
+        // Invoice lines come from the tax invoice when the bundle has one; cost breakup rows are a build-up
+        // of the same amount, not invoice lines.
+        List<ExtractedLine> items = findLineItems(pages.stream().filter(p -> p.type() == DocumentType.TAX_INVOICE)
+                .flatMap(p -> p.lines().stream()).toList());
+        if (items.isEmpty()) {
+            items = findLineItems(pages.stream().filter(p -> p.type() != DocumentType.COST_BREAKUP)
+                    .flatMap(p -> p.lines().stream()).toList());
+        }
         if (items.isEmpty()) {
             warnings.add("No line items could be read (quantity x rate = amount not found on any row)");
         } else if (base != null) {
@@ -149,8 +176,54 @@ public class InvoiceFieldParser {
         List<String> poReferences = findPoReferences(lines);
         if (source == TextSource.OCR) warnings.add("Read by OCR; verify values against the document");
 
+        BundleDetailsExtractor.Result bundle = BundleDetailsExtractor.extract(pages,
+                new BundleDetailsExtractor.Header(date, gstins, base, cgst, sgst, igst, total),
+                InvoiceFieldParser::findLineItems);
         return new ExtractedInvoice(source, invoiceNo, date, gstins, poReferences, base, cgst, sgst, igst, total,
-                items, warnings);
+                items, warnings, bundle.details(), bundle.flags());
+    }
+
+    private static Fields fields(List<String> lines) {
+        BigDecimal base = amount(lines, BASE);
+        BigDecimal cgst = amount(lines, CGST);
+        BigDecimal sgst = amount(lines, SGST);
+        BigDecimal igst = amount(lines, IGST);
+        BigDecimal total = null;
+        for (Pattern p : TOTALS) {
+            if ((total = amount(lines, p)) != null) break;
+        }
+        boolean derived = false;
+        // Summary sheets show total and GST but not the taxable value. Derive it only when the result is
+        // itself printed in the document, so a misread total or tax can never produce an invented base.
+        if (base == null && total != null && (cgst != null || sgst != null || igst != null)) {
+            BigDecimal value = total.subtract(nz(cgst)).subtract(nz(sgst)).subtract(nz(igst));
+            if (value.signum() > 0 && amountPrinted(lines, value)) {
+                base = value;
+                derived = true;
+            }
+        }
+        return new Fields(findInvoiceNo(lines), findDate(lines), base, cgst, sgst, igst, total, derived);
+    }
+
+    /** Most frequent non-null value across pages (first page, the tax invoice, wins ties), else the fallback. */
+    private static <T> T pick(List<Fields> pages, java.util.function.Function<Fields, T> field, T fallback) {
+        java.util.Map<T, Integer> counts = new java.util.LinkedHashMap<>();
+        for (Fields f : pages) {
+            T v = field.apply(f);
+            if (v != null) counts.merge(v, 1, Integer::sum);
+        }
+        return counts.entrySet().stream().max(java.util.Map.Entry.comparingByValue())
+                .map(java.util.Map.Entry::getKey).orElse(fallback);
+    }
+
+    private static BigDecimal pickAmount(List<Fields> pages, java.util.function.Function<Fields, BigDecimal> field,
+            BigDecimal fallback) {
+        // BigDecimal equality is scale-sensitive; 58000.00 and 58000.0 are the same amount.
+        BigDecimal v = pick(pages, f -> {
+            BigDecimal a = field.apply(f);
+            return a == null ? null : a.setScale(2, java.math.RoundingMode.HALF_UP);
+        }, null);
+        return v != null ? v : fallback;
     }
 
     /** 10-digit numbers on lines that mention a PO/WO/order, in document order, without duplicates. */
@@ -173,7 +246,7 @@ public class InvoiceFieldParser {
      * with the amount being the last of the three. HSN codes, serial numbers and tax rates on the row
      * cannot satisfy that equation by chance in practice, so they are ignored.
      */
-    private static List<ExtractedLine> findLineItems(List<String> lines) {
+    static List<ExtractedLine> findLineItems(List<String> lines) {
         List<ExtractedLine> items = new ArrayList<>();
         Set<String> seen = new java.util.HashSet<>();
         for (String raw : lines) {
@@ -181,13 +254,19 @@ public class InvoiceFieldParser {
                 continue;
             }
             // Dates such as 03.09.2026 would otherwise be split into numbers that happen to multiply.
-            String line = DATE.matcher(raw).replaceAll(" ");
+            // OCR reads the rupee sign before an amount as X, T, %, ¥ or €.
+            String line = DATE.matcher(raw).replaceAll(" ").replaceAll("(?<![A-Za-z])[XxT¥€₹%](?=\\d)", " ");
             Matcher m = NUMBER.matcher(line);
             List<BigDecimal> numbers = new ArrayList<>();
+            boolean leadingSerial = false;
             while (m.find()) {
+                // A number at the very start of the row is its serial ("1.00 Tender Items Workdone"), not a qty.
+                // Only OCR junk or a stray letter before it ("_ B 1.00 Tender ...").
+                leadingSerial |= numbers.isEmpty()
+                        && line.substring(0, m.start()).replaceAll("[^A-Za-z0-9]", "").length() <= 1;
                 numbers.add(new BigDecimal(m.group().replace(",", "")));
             }
-            ExtractedLine item = matchRow(line, numbers);
+            ExtractedLine item = matchRow(line, numbers, leadingSerial);
             // The same line repeated elsewhere in a bundle (PO copy, BOQ) is kept once.
             if (item != null && seen.add(item.quantity().stripTrailingZeros().toPlainString() + "x"
                     + item.unitPrice().stripTrailingZeros().toPlainString())) {
@@ -197,12 +276,13 @@ public class InvoiceFieldParser {
         return items;
     }
 
-    private static ExtractedLine matchRow(String line, List<BigDecimal> numbers) {
-        for (int k = numbers.size() - 1; k >= 2; k--) {
+    private static ExtractedLine matchRow(String line, List<BigDecimal> numbers, boolean leadingSerial) {
+        int first = leadingSerial ? 1 : 0;
+        for (int k = numbers.size() - 1; k >= first + 2; k--) {
             BigDecimal amount = numbers.get(k);
             if (amount.signum() <= 0) continue;
-            for (int j = k - 1; j >= 1; j--) {
-                for (int i = j - 1; i >= 0; i--) {
+            for (int j = k - 1; j >= first + 1; j--) {
+                for (int i = j - 1; i >= first; i--) {
                     BigDecimal qty = numbers.get(i);
                     BigDecimal rate = numbers.get(j);
                     if (qty.signum() > 0 && qty.multiply(rate).subtract(amount).abs().compareTo(rowTolerance(amount)) <= 0) {
@@ -330,14 +410,35 @@ public class InvoiceFieldParser {
     }
 
     private static List<String> findGstins(String text, List<String> warnings) {
-        Set<String> found = new LinkedHashSet<>();
-        Matcher m = GstinValidator.GSTIN.matcher(text.toUpperCase(Locale.ROOT));
+        java.util.Map<String, Integer> counts = new java.util.LinkedHashMap<>();
+        Set<String> exact = new java.util.HashSet<>();
+        java.util.Map<String, String> corrections = new java.util.LinkedHashMap<>();
+        Set<String> invalid = new LinkedHashSet<>();
+        Matcher m = GstinValidator.LOOSE_GSTIN.matcher(text.toUpperCase(Locale.ROOT));
         while (m.find()) {
-            if (GstinValidator.isValid(m.group())) {
-                found.add(m.group());
-            } else {
-                warnings.add("GSTIN " + m.group() + " fails check digit (possible misread)");
+            String token = m.group();
+            String gstin = GstinValidator.repair(token);
+            if (gstin != null) {
+                counts.merge(gstin, 1, Integer::sum);
+                if (gstin.equals(token)) exact.add(gstin); else corrections.putIfAbsent(token, gstin);
+            } else if (GstinValidator.GSTIN.matcher(token).matches()) {
+                invalid.add(token);
             }
+        }
+        // A corrected GSTIN close to one read more reliably (exactly, or more often) is a misread of that one.
+        Set<String> found = new LinkedHashSet<>();
+        for (String g : counts.keySet()) {
+            boolean shadowed = !exact.contains(g) && counts.keySet().stream().anyMatch(o -> !o.equals(g)
+                    && (exact.contains(o) || counts.get(o) > counts.get(g)) && GstinValidator.differences(o, g) <= 3);
+            if (!shadowed) found.add(g);
+        }
+        List<String> corrected = corrections.entrySet().stream().filter(e -> found.contains(e.getValue()))
+                .map(e -> e.getKey() + " -> " + e.getValue()).toList();
+        // A misread that cannot be corrected is reported only if the correct GSTIN wasn't read elsewhere.
+        invalid.stream().filter(t -> found.stream().noneMatch(g -> g.substring(0, 12).equals(t.substring(0, 12))))
+                .forEach(t -> warnings.add("GSTIN " + t + " fails check digit (possible misread)"));
+        if (!corrected.isEmpty()) {
+            warnings.add("GSTIN OCR misreads corrected by check digit: " + String.join(", ", corrected));
         }
         return List.copyOf(found);
     }
@@ -354,7 +455,7 @@ public class InvoiceFieldParser {
         return null;
     }
 
-    private static LocalDate parseDate(String s) {
+    static LocalDate parseDate(String s) {
         for (DateTimeFormatter f : DATE_FORMATS) {
             try {
                 return LocalDate.parse(s, f);

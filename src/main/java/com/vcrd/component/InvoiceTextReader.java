@@ -1,8 +1,12 @@
 package com.vcrd.component;
 
+import java.awt.Graphics2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.imageio.ImageIO;
 
@@ -37,6 +41,11 @@ public class InvoiceTextReader {
     private static final int OCR_DPI = 300;
     private static final int SINGLE_BLOCK = 6;
     private static final int SPARSE_TEXT = 11;
+    /** Separates pages in the returned text, so the parser can tell the documents of a bundle apart. */
+    public static final String PAGE_BREAK = "\n\f\n";
+    /** A page with fewer recognisable words than this is retried turned sideways. */
+    private static final int MIN_WORDS = 25;
+    private static final Pattern WORD = Pattern.compile("(?i)\\b[a-z]{4,}\\b");
 
     private final String tessdataPath;
     private final String language;
@@ -54,7 +63,9 @@ public class InvoiceTextReader {
         try {
             if ("application/pdf".equals(contentType)) {
                 try (PDDocument pdf = Loader.loadPDF(content)) {
-                    String text = new PDFTextStripper().getText(pdf);
+                    PDFTextStripper stripper = new PDFTextStripper();
+                    stripper.setPageEnd(PAGE_BREAK);
+                    String text = stripper.getText(pdf);
                     if (text.replaceAll("\\s", "").length() >= MIN_TEXT_CHARS) {
                         return new ReadText(text, TextSource.PDF_TEXT);
                     }
@@ -75,7 +86,7 @@ public class InvoiceTextReader {
         PDFRenderer renderer = new PDFRenderer(pdf);
         StringBuilder sb = new StringBuilder();
         for (int page = 0; page < pdf.getNumberOfPages(); page++) {
-            sb.append(ocr(renderer.renderImageWithDPI(page, OCR_DPI, ImageType.GRAY))).append('\n');
+            sb.append(ocr(renderer.renderImageWithDPI(page, OCR_DPI, ImageType.GRAY))).append(PAGE_BREAK);
         }
         return sb.toString();
     }
@@ -95,6 +106,21 @@ public class InvoiceTextReader {
             //    with shaded cells that pass 1 turns into noise;
             // 3. cleaned page, sparse text: recovers isolated cells such as an invoice number under its label.
             String original = tesseract.doOCR(image);
+            // Scanned bundles often contain landscape sheets (BOQ, cost breakup) scanned sideways.
+            // A turned page wins only when it reads clearly more words (OCR of a sideways page is mostly noise).
+            if (words(original) < MIN_WORDS) {
+                BufferedImage upright = image;
+                int best = words(original);
+                for (int degrees : new int[] {90, 270}) {
+                    BufferedImage turned = rotate(upright, degrees);
+                    String text = tesseract.doOCR(turned);
+                    if (words(text) >= 10 && words(text) > best * 3 / 2) {
+                        best = words(text);
+                        image = turned;
+                        original = text;
+                    }
+                }
+            }
             BufferedImage cleaned = ScanCleaner.clean(image, Math.max(40, image.getWidth() / 30));
             tesseract.setPageSegMode(SINGLE_BLOCK);
             String table = tesseract.doOCR(cleaned);
@@ -104,5 +130,24 @@ public class InvoiceTextReader {
             log.warn("OCR failed", e);
             throw new BusinessException("OCR_FAILED", "OCR failed: " + e.getMessage());
         }
+    }
+
+    private static int words(String text) {
+        Matcher m = WORD.matcher(text);
+        int n = 0;
+        while (m.find()) n++;
+        return n;
+    }
+
+    private static BufferedImage rotate(BufferedImage image, int degrees) {
+        int w = image.getWidth();
+        int h = image.getHeight();
+        BufferedImage out = new BufferedImage(h, w, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D g = out.createGraphics();
+        g.translate(degrees == 90 ? h : 0, degrees == 90 ? 0 : w);
+        g.rotate(Math.toRadians(degrees));
+        g.drawImage(image, 0, 0, null);
+        g.dispose();
+        return out;
     }
 }

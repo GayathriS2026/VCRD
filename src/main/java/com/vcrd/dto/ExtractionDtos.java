@@ -31,7 +31,89 @@ public final class ExtractionDtos {
             BigDecimal igstAmount,
             BigDecimal totalAmount,
             List<ExtractedLine> lines,
-            List<String> warnings) {
+            List<String> warnings,
+            /** Party, PO, project and payment details read across the bundle; null fields were not found. */
+            BundleDetails details,
+            /** Red flags for the reviewer (draft PO, bill before delivery, address differences, ...). */
+            List<ReviewFlag> flags) {
+    }
+
+    /** Documents a contractor bill bundle is made of; each page is classified as one of these. */
+    public enum DocumentType {
+        PAYMENT_ADVICE,
+        BILL_CHECKLIST,
+        BILL_TRACKING_FORM,
+        COVERING_LETTER,
+        PAYMENT_RECOMMENDATION,
+        TAX_INVOICE,
+        BILL_OF_QUANTITIES,
+        COST_BREAKUP,
+        PURCHASE_ORDER,
+        OTHER
+    }
+
+    public record PageInfo(int page, DocumentType type) {
+    }
+
+    public record BundleDetails(
+            List<PageInfo> pages,
+            // common fields
+            String vendorName,
+            String vendorGstin,
+            String vendorPan,
+            String vendorState,
+            String buyerName,
+            String buyerGstin,
+            String buyerPan,
+            String buyerState,
+            /** Full PO/WO reference as printed, e.g. "ZSER-8000035454". */
+            String poReference,
+            LocalDate poDate,
+            String projectName,
+            String projectLocation,
+            String workDescription,
+            String runningBillNo,
+            boolean finalBill,
+            String amendmentPoNo,
+            String sacCode,
+            String uom,
+            BigDecimal amountInWords,
+            String amountInWordsText,
+            BigDecimal deductions,
+            LocalDate submittedDate,
+            LocalDate certifiedDate,
+            // tax invoice only
+            String vendorMobile,
+            String buyerPincodeOnInvoice,
+            boolean invoiceBankDetailsPresent,
+            // purchase order only
+            String vendorCode,
+            String vendorBankAccount,
+            String vendorIfsc,
+            String wbsElement,
+            LocalDate deliveryDate,
+            String paymentTerms,
+            String shipToGstin,
+            String billToPincodeOnPo,
+            String segment,
+            String preparedBy,
+            boolean poDraft,
+            // payment advice only
+            String jobNo,
+            // cost breakup only
+            List<ExtractedLine> costBreakup,
+            // bill tracking form only: stages whose date/name/sign cells are blank
+            List<String> missingSignoffs) {
+    }
+
+    public enum FlagSeverity {
+        HIGH,
+        MEDIUM,
+        INFO
+    }
+
+    /** @param passed true for checks that ran and passed (shown so the reviewer sees what was checked) */
+    public record ReviewFlag(String code, FlagSeverity severity, boolean passed, String message) {
     }
 
     /** A table row accepted only when quantity x rate = amount, so stray numbers are never taken as lines. */
