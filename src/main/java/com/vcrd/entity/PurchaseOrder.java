@@ -55,6 +55,18 @@ public class PurchaseOrder {
     @Column(nullable = false)
     private Instant lastSyncedAt;
 
+    private String purchaseGroup;
+
+    private String buyerSapId;
+
+    private String paymentTermCode;
+
+    private String paymentTermText;
+
+    private String wbsCode;
+
+    private String vendorGstin;
+
     @OneToMany(mappedBy = "purchaseOrder", cascade = CascadeType.ALL)
     @OrderBy("itemNo")
     private List<PoLine> lines = new ArrayList<>();
@@ -75,6 +87,16 @@ public class PurchaseOrder {
         this.currency = currency;
         this.releaseStatus = releaseStatus;
         this.lastSyncedAt = Instant.now();
+    }
+
+    public void updateCommercialDetails(String purchaseGroup, String buyerSapId, String paymentTermCode,
+            String paymentTermText, String wbsCode, String vendorGstin) {
+        this.purchaseGroup = purchaseGroup;
+        this.buyerSapId = buyerSapId;
+        this.paymentTermCode = paymentTermCode;
+        this.paymentTermText = paymentTermText;
+        this.wbsCode = wbsCode;
+        this.vendorGstin = vendorGstin;
     }
 
     public Optional<PoLine> findLine(int itemNo) {
@@ -133,6 +155,30 @@ public class PurchaseOrder {
 
     public Instant getLastSyncedAt() {
         return lastSyncedAt;
+    }
+
+    public String getPurchaseGroup() {
+        return purchaseGroup;
+    }
+
+    public String getBuyerSapId() {
+        return buyerSapId;
+    }
+
+    public String getPaymentTermCode() {
+        return paymentTermCode;
+    }
+
+    public String getPaymentTermText() {
+        return paymentTermText;
+    }
+
+    public String getWbsCode() {
+        return wbsCode;
+    }
+
+    public String getVendorGstin() {
+        return vendorGstin;
     }
 
     public List<PoLine> getLines() {

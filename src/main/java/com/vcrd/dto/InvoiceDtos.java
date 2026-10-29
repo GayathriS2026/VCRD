@@ -1,5 +1,6 @@
 package com.vcrd.dto;
 
+import com.vcrd.entity.Invoice;
 import com.vcrd.entity.InvoiceDocument;
 import com.vcrd.constants.InvoiceStatus;
 
@@ -30,6 +31,13 @@ public final class InvoiceDtos {
             @PositiveOrZero BigDecimal baseAmount,
             @PositiveOrZero BigDecimal taxAmount,
             @PositiveOrZero BigDecimal totalAmount,
+            @PositiveOrZero BigDecimal cgstAmount,
+            @PositiveOrZero BigDecimal sgstAmount,
+            @PositiveOrZero BigDecimal igstAmount,
+            @PositiveOrZero BigDecimal otherTaxes,
+            @PositiveOrZero BigDecimal otherCharges,
+            @PastOrPresent LocalDate invoiceReceiptDate,
+            @Size(max = 500) String remarks,
             @NotEmpty List<@Valid LineRequest> lines) {
     }
 
@@ -51,6 +59,15 @@ public final class InvoiceDtos {
             BigDecimal baseAmount,
             BigDecimal taxAmount,
             BigDecimal totalAmount,
+            BigDecimal cgstAmount,
+            BigDecimal sgstAmount,
+            BigDecimal igstAmount,
+            BigDecimal otherTaxes,
+            BigDecimal otherCharges,
+            LocalDate invoiceReceiptDate,
+            String remarks,
+            ParkingInfo parking,
+            ClearingInfo clearing,
             InvoiceStatus status,
             UUID createdBy,
             Instant createdAt,
@@ -58,6 +75,24 @@ public final class InvoiceDtos {
             long version,
             List<LineResponse> lines,
             List<DocumentResponse> documents) {
+    }
+
+    public record ParkingInfo(String parkedDocNo, String parkedBySapId, String parkedByName, Instant parkedAt,
+            String changedBySapId, String changedByName, Instant changedAt) {
+
+        public static ParkingInfo from(Invoice i) {
+            return new ParkingInfo(i.getParkedDocNo(), i.getParkedBySapId(), i.getParkedByName(), i.getParkedAt(),
+                    i.getParkChangedBySapId(), i.getParkChangedByName(), i.getParkChangedAt());
+        }
+    }
+
+    public record ClearingInfo(BigDecimal miroValue, String clearingDocNo, LocalDate clearingDate,
+            BigDecimal clearedAmount) {
+
+        public static ClearingInfo from(Invoice i) {
+            return new ClearingInfo(i.getMiroValue(), i.getClearingDocNo(), i.getClearingDate(),
+                    i.getClearedAmount());
+        }
     }
 
     public record LineResponse(int poItemNo, String description, BigDecimal quantity, BigDecimal unitPrice,

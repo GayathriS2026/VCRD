@@ -31,7 +31,9 @@ import com.vcrd.service.AuditService;
 import com.vcrd.exception.BusinessException;
 import com.vcrd.exception.NotFoundException;
 import com.vcrd.constants.Role;
+import com.vcrd.dto.InvoiceDtos.ClearingInfo;
 import com.vcrd.dto.InvoiceDtos.DocumentResponse;
+import com.vcrd.dto.InvoiceDtos.ParkingInfo;
 import com.vcrd.dto.InvoiceDtos.InvoiceRequest;
 import com.vcrd.dto.InvoiceDtos.InvoiceResponse;
 import com.vcrd.dto.InvoiceDtos.InvoiceSummary;
@@ -207,7 +209,10 @@ public class InvoiceService {
         return new InvoiceResponse(invoice.getId(), invoice.getTrackingNo(),
                 invoice.getPurchaseOrder().getPoNumber(), invoice.getSiteCode(), invoice.getVendorCode(),
                 invoice.getVendorInvoiceNo(), invoice.getInvoiceDate(), invoice.getCurrency(),
-                invoice.getBaseAmount(), invoice.getTaxAmount(), invoice.getTotalAmount(), invoice.getStatus(),
+                invoice.getBaseAmount(), invoice.getTaxAmount(), invoice.getTotalAmount(),
+                invoice.getCgstAmount(), invoice.getSgstAmount(), invoice.getIgstAmount(), invoice.getOtherTaxes(),
+                invoice.getOtherCharges(), invoice.getInvoiceReceiptDate(), invoice.getRemarks(),
+                ParkingInfo.from(invoice), ClearingInfo.from(invoice), invoice.getStatus(),
                 invoice.getCreatedBy(), invoice.getCreatedAt(), invoice.getUpdatedAt(), invoice.getVersion(), lines,
                 docs);
     }
@@ -221,6 +226,9 @@ public class InvoiceService {
     private void applyRequest(Invoice invoice, PurchaseOrder po, InvoiceRequest request) {
         invoice.updateDetails(request.vendorInvoiceNo().trim(), request.invoiceDate(), request.baseAmount(),
                 request.taxAmount(), request.totalAmount());
+        invoice.updateTaxBreakup(request.cgstAmount(), request.sgstAmount(), request.igstAmount(),
+                request.otherTaxes(), request.otherCharges());
+        invoice.updateReceipt(request.invoiceReceiptDate(), request.remarks());
         List<InvoiceLine> lines = new ArrayList<>();
         for (LineRequest lr : request.lines()) {
             PoLine poLine = po.findLine(lr.poItemNo())
@@ -256,6 +264,11 @@ public class InvoiceService {
         m.put("invoiceDate", String.valueOf(i.getInvoiceDate()));
         m.put("baseAmount", String.valueOf(i.getBaseAmount()));
         m.put("taxAmount", String.valueOf(i.getTaxAmount()));
+        m.put("cgstAmount", String.valueOf(i.getCgstAmount()));
+        m.put("sgstAmount", String.valueOf(i.getSgstAmount()));
+        m.put("igstAmount", String.valueOf(i.getIgstAmount()));
+        m.put("otherTaxes", String.valueOf(i.getOtherTaxes()));
+        m.put("otherCharges", String.valueOf(i.getOtherCharges()));
         m.put("totalAmount", String.valueOf(i.getTotalAmount()));
         m.put("lines", i.getLines().stream()
                 .map(l -> l.getPoLine().getItemNo() + ":" + l.getQuantity() + "@" + l.getUnitPrice())

@@ -64,6 +64,46 @@ public class Invoice {
 
     private BigDecimal totalAmount;
 
+    // GST split (India): intra-state invoices use CGST + SGST, inter-state use IGST.
+    private BigDecimal cgstAmount;
+
+    private BigDecimal sgstAmount;
+
+    private BigDecimal igstAmount;
+
+    private BigDecimal otherTaxes;
+
+    private BigDecimal otherCharges;
+
+    private LocalDate invoiceReceiptDate;
+
+    @Column(length = 500)
+    private String remarks;
+
+    // SAP parking details (synced from SAP, not user-editable).
+    private String parkedDocNo;
+
+    private String parkedBySapId;
+
+    private String parkedByName;
+
+    private Instant parkedAt;
+
+    private String parkChangedBySapId;
+
+    private String parkChangedByName;
+
+    private Instant parkChangedAt;
+
+    // SAP MIGO/MIRO clearing details (synced from SAP, not user-editable).
+    private BigDecimal miroValue;
+
+    private String clearingDocNo;
+
+    private LocalDate clearingDate;
+
+    private BigDecimal clearedAmount;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private InvoiceStatus status = InvoiceStatus.DRAFT;
@@ -102,6 +142,43 @@ public class Invoice {
         this.baseAmount = baseAmount;
         this.taxAmount = taxAmount;
         this.totalAmount = totalAmount;
+        touch();
+    }
+
+    public void updateTaxBreakup(BigDecimal cgstAmount, BigDecimal sgstAmount, BigDecimal igstAmount,
+            BigDecimal otherTaxes, BigDecimal otherCharges) {
+        this.cgstAmount = cgstAmount;
+        this.sgstAmount = sgstAmount;
+        this.igstAmount = igstAmount;
+        this.otherTaxes = otherTaxes;
+        this.otherCharges = otherCharges;
+        touch();
+    }
+
+    public void updateReceipt(LocalDate invoiceReceiptDate, String remarks) {
+        this.invoiceReceiptDate = invoiceReceiptDate;
+        this.remarks = remarks;
+        touch();
+    }
+
+    public void updateParking(String parkedDocNo, String parkedBySapId, String parkedByName, Instant parkedAt,
+            String parkChangedBySapId, String parkChangedByName, Instant parkChangedAt) {
+        this.parkedDocNo = parkedDocNo;
+        this.parkedBySapId = parkedBySapId;
+        this.parkedByName = parkedByName;
+        this.parkedAt = parkedAt;
+        this.parkChangedBySapId = parkChangedBySapId;
+        this.parkChangedByName = parkChangedByName;
+        this.parkChangedAt = parkChangedAt;
+        touch();
+    }
+
+    public void updateClearing(BigDecimal miroValue, String clearingDocNo, LocalDate clearingDate,
+            BigDecimal clearedAmount) {
+        this.miroValue = miroValue;
+        this.clearingDocNo = clearingDocNo;
+        this.clearingDate = clearingDate;
+        this.clearedAmount = clearedAmount;
         touch();
     }
 
@@ -163,6 +240,78 @@ public class Invoice {
 
     public BigDecimal getTotalAmount() {
         return totalAmount;
+    }
+
+    public BigDecimal getCgstAmount() {
+        return cgstAmount;
+    }
+
+    public BigDecimal getSgstAmount() {
+        return sgstAmount;
+    }
+
+    public BigDecimal getIgstAmount() {
+        return igstAmount;
+    }
+
+    public BigDecimal getOtherTaxes() {
+        return otherTaxes;
+    }
+
+    public BigDecimal getOtherCharges() {
+        return otherCharges;
+    }
+
+    public LocalDate getInvoiceReceiptDate() {
+        return invoiceReceiptDate;
+    }
+
+    public String getRemarks() {
+        return remarks;
+    }
+
+    public String getParkedDocNo() {
+        return parkedDocNo;
+    }
+
+    public String getParkedBySapId() {
+        return parkedBySapId;
+    }
+
+    public String getParkedByName() {
+        return parkedByName;
+    }
+
+    public Instant getParkedAt() {
+        return parkedAt;
+    }
+
+    public String getParkChangedBySapId() {
+        return parkChangedBySapId;
+    }
+
+    public String getParkChangedByName() {
+        return parkChangedByName;
+    }
+
+    public Instant getParkChangedAt() {
+        return parkChangedAt;
+    }
+
+    public BigDecimal getMiroValue() {
+        return miroValue;
+    }
+
+    public String getClearingDocNo() {
+        return clearingDocNo;
+    }
+
+    public LocalDate getClearingDate() {
+        return clearingDate;
+    }
+
+    public BigDecimal getClearedAmount() {
+        return clearedAmount;
     }
 
     public InvoiceStatus getStatus() {
