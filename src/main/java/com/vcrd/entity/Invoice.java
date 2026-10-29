@@ -3,7 +3,6 @@ package com.vcrd.entity;
 import com.vcrd.service.InvoiceStateChanger;
 import com.vcrd.constants.InvoiceStatus;
 import com.vcrd.constants.MatchStatus;
-import com.vcrd.constants.SapStatus;
 import com.vcrd.service.WorkflowService;
 
 import java.math.BigDecimal;
@@ -106,8 +105,6 @@ public class Invoice {
 
     private BigDecimal clearedAmount;
 
-    @Enumerated(EnumType.STRING)
-    private SapStatus sapStatus;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -121,7 +118,7 @@ public class Invoice {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
-    private InvoiceStatus status = InvoiceStatus.DRAFT;
+    private InvoiceStatus status = InvoiceStatus.UPLOADED;
 
     @Column(nullable = false, updatable = false)
     private UUID createdBy;
@@ -192,11 +189,6 @@ public class Invoice {
         this.matchStatus = matchStatus;
         this.matchDetails = matchDetails;
         this.matchCheckedAt = Instant.now();
-        touch();
-    }
-
-    public void changeSapStatus(SapStatus sapStatus) {
-        this.sapStatus = sapStatus;
         touch();
     }
 
@@ -339,10 +331,6 @@ public class Invoice {
 
     public BigDecimal getClearedAmount() {
         return clearedAmount;
-    }
-
-    public SapStatus getSapStatus() {
-        return sapStatus;
     }
 
     public MatchStatus getMatchStatus() {

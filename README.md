@@ -31,7 +31,7 @@ Mock SAP POs: `4500012345` (SITE-01), `4500012346` (SITE-02), `4500012347` (SITE
 1. `POST /api/v1/auth/login` → copy `accessToken`, click **Authorize** in Swagger.
 2. `GET /api/v1/pos/4500012345`
 3. `POST /api/v1/invoices` → `POST /api/v1/invoices/{id}/documents` (PDF/PNG/JPG)
-4. `POST /api/v1/invoices/{id}/actions/SUBMIT` (site.user) → `SEND_FOR_APPROVAL` (pmo.user) → `APPROVE` (approver)
+4. `POST /api/v1/invoices/{id}/actions/SUBMIT` → `VERIFY` (site.user) → system validation → `INITIATE_ZPARK` (pmo.user) → SAP / GR outcomes → `APPROVE` (approver) → `POST_MIRO` (pmo.user) → clearing. Full lifecycle: `TransitionTable`
 5. `GET /api/v1/invoices/{id}/history`, `GET /api/v1/audit?entityId={id}` (auditor)
 
 ## Structure

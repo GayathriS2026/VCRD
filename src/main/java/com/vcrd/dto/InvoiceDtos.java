@@ -4,7 +4,6 @@ import com.vcrd.entity.Invoice;
 import com.vcrd.entity.InvoiceDocument;
 import com.vcrd.constants.InvoiceStatus;
 import com.vcrd.constants.MatchStatus;
-import com.vcrd.constants.SapStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -70,7 +69,6 @@ public final class InvoiceDtos {
             String remarks,
             ParkingInfo parking,
             ClearingInfo clearing,
-            SapStatus sapStatus,
             MatchStatus matchStatus,
             Instant matchCheckedAt,
             InvoiceStatus status,

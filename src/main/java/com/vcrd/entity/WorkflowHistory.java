@@ -39,7 +39,8 @@ public class WorkflowHistory {
     @Column(nullable = false, updatable = false)
     private WorkflowAction action;
 
-    @Column(nullable = false, updatable = false)
+    /** Null when the change was recorded by the system (validation engine / SAP connector). */
+    @Column(updatable = false)
     private UUID actorId;
 
     @Column(updatable = false)

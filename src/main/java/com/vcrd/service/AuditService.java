@@ -25,6 +25,8 @@ public class AuditService {
     private final CurrentUserProvider currentUser;
     private final ObjectMapper objectMapper;
 
+    public static final String SYSTEM_ACTOR = "SYSTEM";
+
     public AuditService(AuditEventRepository repository, CurrentUserProvider currentUser, ObjectMapper objectMapper) {
         this.repository = repository;
         this.currentUser = currentUser;
@@ -38,6 +40,13 @@ public class AuditService {
         String roles = user.roles().stream().map(Enum::name).sorted().collect(Collectors.joining(","));
         repository.save(new AuditEvent(entityType, entityId, action, user.id(), user.username(), roles,
                 toJson(details), MDC.get(CorrelationIdFilter.MDC_KEY)));
+    }
+
+    /** For changes recorded by the system (validation engine / SAP connector) with no logged-in user. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void recordSystem(String entityType, UUID entityId, String action, Map<String, ?> details) {
+        repository.save(new AuditEvent(entityType, entityId, action, null, SYSTEM_ACTOR, null, toJson(details),
+                MDC.get(CorrelationIdFilter.MDC_KEY)));
     }
 
     private String toJson(Map<String, ?> details) {

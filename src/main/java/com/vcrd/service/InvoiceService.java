@@ -212,7 +212,7 @@ public class InvoiceService {
                 invoice.getBaseAmount(), invoice.getTaxAmount(), invoice.getTotalAmount(),
                 invoice.getCgstAmount(), invoice.getSgstAmount(), invoice.getIgstAmount(), invoice.getOtherTaxes(),
                 invoice.getOtherCharges(), invoice.getInvoiceReceiptDate(), invoice.getRemarks(),
-                ParkingInfo.from(invoice), ClearingInfo.from(invoice), invoice.getSapStatus(),
+                ParkingInfo.from(invoice), ClearingInfo.from(invoice),
                 invoice.getMatchStatus(), invoice.getMatchCheckedAt(), invoice.getStatus(),
                 invoice.getCreatedBy(), invoice.getCreatedAt(), invoice.getUpdatedAt(), invoice.getVersion(), lines,
                 docs);

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,10 +18,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vcrd.config.DevDataSeeder;
+import com.vcrd.constants.WorkflowAction;
+import com.vcrd.service.WorkflowService;
 
 @SpringBootTest(properties = {
         "spring.datasource.url=jdbc:h2:mem:vcrdtest;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH",
@@ -35,8 +39,11 @@ class InvoiceFlowTest {
     @Autowired
     ObjectMapper json;
 
+    @Autowired
+    WorkflowService workflow;
+
     @Test
-    void siteUserSubmitsPmoForwardsApproverApproves() throws Exception {
+    void invoiceRunsThroughFullLifecycleToCleared() throws Exception {
         String site = login("site.user");
         String pmo = login("pmo.user");
         String approver = login("approver");
@@ -56,21 +63,36 @@ class InvoiceFlowTest {
 
         mvc.perform(post("/api/v1/invoices/" + id + "/actions/SUBMIT").header("Authorization", site))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("SUBMITTED"));
+                .andExpect(jsonPath("$.status").value("PENDING_VERIFICATION"));
+
+        action(site, id, "VERIFY").andExpect(jsonPath("$.status").value("READY_FOR_VALIDATION"));
+
+        // validation outcome is recorded by the system, never by a user
+        action(pmo, id, "PASS_VALIDATION").andExpect(status().isForbidden());
+        UUID uuid = UUID.fromString(id);
+        workflow.performSystem(uuid, WorkflowAction.PASS_VALIDATION, null);
 
         // site user cannot do PMO's step
-        mvc.perform(post("/api/v1/invoices/" + id + "/actions/SEND_FOR_APPROVAL").header("Authorization", site))
-                .andExpect(status().isForbidden());
+        action(site, id, "INITIATE_ZPARK").andExpect(status().isForbidden());
+        action(pmo, id, "INITIATE_ZPARK").andExpect(jsonPath("$.status").value("ZPARK_IN_PROGRESS"));
 
-        mvc.perform(post("/api/v1/invoices/" + id + "/actions/SEND_FOR_APPROVAL").header("Authorization", pmo))
-                .andExpect(jsonPath("$.status").value("PENDING_APPROVAL"));
+        workflow.performSystem(uuid, WorkflowAction.SAP_CONFIRMED, "Parked doc 2600009773");
+        workflow.performSystem(uuid, WorkflowAction.GR_NOT_REQUIRED, null);
 
-        mvc.perform(post("/api/v1/invoices/" + id + "/actions/APPROVE").header("Authorization", approver))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("APPROVED"));
+        action(approver, id, "APPROVE").andExpect(jsonPath("$.status").value("APPROVED"));
+        action(pmo, id, "POST_MIRO").andExpect(jsonPath("$.status").value("MIRO_IN_PROGRESS"));
 
+        workflow.performSystem(uuid, WorkflowAction.SAP_CONFIRMED, null);
+        workflow.performSystem(uuid, WorkflowAction.CLEARING_CONFIRMED, "Clearing doc 2026005288");
+
+        mvc.perform(get("/api/v1/invoices/" + id).header("Authorization", site))
+                .andExpect(jsonPath("$.status").value("CLEARED"));
         mvc.perform(get("/api/v1/invoices/" + id + "/history").header("Authorization", site))
-                .andExpect(jsonPath("$.length()").value(3));
+                .andExpect(jsonPath("$.length()").value(10));
+    }
+
+    private ResultActions action(String token, String id, String action) throws Exception {
+        return mvc.perform(post("/api/v1/invoices/" + id + "/actions/" + action).header("Authorization", token));
     }
 
     @Test
@@ -118,7 +140,7 @@ class InvoiceFlowTest {
         String response = mvc.perform(post("/api/v1/invoices").header("Authorization", token)
                 .contentType(MediaType.APPLICATION_JSON).content(invoiceJson("4500012345", invoiceNo)))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.status").value("DRAFT"))
+                .andExpect(jsonPath("$.status").value("UPLOADED"))
                 .andReturn().getResponse().getContentAsString();
         JsonNode node = json.readTree(response);
         return node.get("id").asText();

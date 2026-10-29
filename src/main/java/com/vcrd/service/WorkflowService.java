@@ -19,6 +19,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.vcrd.service.AuditService;
 import com.vcrd.exception.BusinessException;
+import com.vcrd.exception.NotFoundException;
+import com.vcrd.repository.InvoiceRepository;
 import com.vcrd.entity.Invoice;
 import com.vcrd.service.InvoiceAccessPolicy;
 import com.vcrd.repository.InvoiceDocumentRepository;
@@ -38,10 +40,13 @@ import com.vcrd.component.TransitionTable.Transition;
 @Service
 public class WorkflowService {
 
-    private static final Set<WorkflowAction> REQUIRE_REMARK = Set.of(WorkflowAction.REJECT, WorkflowAction.RETURN);
-    private static final Set<WorkflowAction> DECISIONS = Set.of(WorkflowAction.APPROVE, WorkflowAction.REJECT);
+    private static final Set<WorkflowAction> REQUIRE_REMARK = Set.of(WorkflowAction.REJECT, WorkflowAction.RETURN,
+            WorkflowAction.OVERRIDE_EXCEPTION);
+    private static final Set<WorkflowAction> DECISIONS = Set.of(WorkflowAction.APPROVE, WorkflowAction.REJECT,
+            WorkflowAction.OVERRIDE_EXCEPTION);
 
     private final InvoiceAccessPolicy accessPolicy;
+    private final InvoiceRepository invoices;
     private final InvoiceStateChanger stateChanger;
     private final InvoiceDocumentRepository documents;
     private final InvoiceService invoiceService;
@@ -50,10 +55,11 @@ public class WorkflowService {
     private final AuditService audit;
     private final CurrentUserProvider currentUser;
 
-    public WorkflowService(InvoiceAccessPolicy accessPolicy, InvoiceStateChanger stateChanger,
+    public WorkflowService(InvoiceAccessPolicy accessPolicy, InvoiceRepository invoices, InvoiceStateChanger stateChanger,
             InvoiceDocumentRepository documents, InvoiceService invoiceService, TransitionTable transitions,
             WorkflowHistoryRepository history, AuditService audit, CurrentUserProvider currentUser) {
         this.accessPolicy = accessPolicy;
+        this.invoices = invoices;
         this.stateChanger = stateChanger;
         this.documents = documents;
         this.invoiceService = invoiceService;
@@ -67,18 +73,45 @@ public class WorkflowService {
     public InvoiceResponse perform(UUID invoiceId, WorkflowAction action, String remark) {
         CurrentUser user = currentUser.get();
         Invoice invoice = accessPolicy.loadAccessible(invoiceId, user);
-        InvoiceStatus from = invoice.getStatus();
-
-        Transition transition = transitions.find(from, action)
-                .orElseThrow(() -> new BusinessException("INVALID_TRANSITION",
-                        "Action " + action + " is not allowed when invoice is " + from));
+        Transition transition = findTransition(invoice, action);
+        if (transition.isSystemOnly()) {
+            throw new AccessDeniedException(action + " is recorded by the system and cannot be performed by users");
+        }
         if (!user.hasAnyRole(transition.allowedRoles())) {
             throw new AccessDeniedException("Role not permitted for " + action);
         }
         checkGuards(invoice, action, remark, user);
+        return apply(invoice, action, transition, remark, user.id());
+    }
 
+    /**
+     * Records an outcome reported by the validation engine or the SAP connector
+     * (e.g. SAP_CONFIRMED, GR_PENDING). Not exposed through the API. History shows no actor.
+     */
+    @Transactional
+    public InvoiceResponse performSystem(UUID invoiceId, WorkflowAction action, String remark) {
+        Invoice invoice = invoices.findById(invoiceId)
+                .orElseThrow(() -> new NotFoundException("Invoice " + invoiceId + " not found"));
+        Transition transition = findTransition(invoice, action);
+        if (!transition.isSystemOnly()) {
+            throw new IllegalArgumentException(action + " is a user action");
+        }
+        return apply(invoice, action, transition, remark, null);
+    }
+
+    private Transition findTransition(Invoice invoice, WorkflowAction action) {
+        InvoiceStatus from = invoice.getStatus();
+        return transitions.find(from, action)
+                .orElseThrow(() -> new BusinessException("INVALID_TRANSITION",
+                        "Action " + action + " is not allowed when invoice is " + from));
+    }
+
+    private InvoiceResponse apply(Invoice invoice, WorkflowAction action, Transition transition, String remark,
+            UUID actorId) {
+        UUID invoiceId = invoice.getId();
+        InvoiceStatus from = invoice.getStatus();
         stateChanger.apply(invoice, transition.to());
-        history.save(new WorkflowHistory(invoiceId, from, transition.to(), action, user.id(), remark));
+        history.save(new WorkflowHistory(invoiceId, from, transition.to(), action, actorId, remark));
 
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("action", action.name());
@@ -87,7 +120,11 @@ public class WorkflowService {
         if (remark != null) {
             details.put("remark", remark);
         }
-        audit.record("INVOICE", invoiceId, "STATUS_CHANGED", details);
+        if (actorId == null) {
+            audit.recordSystem("INVOICE", invoiceId, "STATUS_CHANGED", details);
+        } else {
+            audit.record("INVOICE", invoiceId, "STATUS_CHANGED", details);
+        }
         return invoiceService.toResponse(invoice);
     }
 
