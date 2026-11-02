@@ -1,6 +1,7 @@
 package com.vcrd.service;
 
 import java.util.Set;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -28,16 +29,19 @@ public class KeycloakUserService {
     private final AppUserRepository users;
     private final String clientId;
     private final boolean useResourceRoleMappings;
+    private final Map<String, Role> roleAliases;
 
     public KeycloakUserService(AppUserRepository users, @Value("${keycloak.resource}") String clientId,
-            @Value("${keycloak.use-resource-role-mappings:true}") boolean useResourceRoleMappings) {
+            @Value("${keycloak.use-resource-role-mappings:true}") boolean useResourceRoleMappings,
+            @Value("${keycloak.role-aliases:}") String roleAliases) {
         this.users = users;
         this.clientId = clientId;
         this.useResourceRoleMappings = useResourceRoleMappings;
+        this.roleAliases = KeycloakClaims.parseAliases(roleAliases);
     }
 
     public Set<Role> roles(Jwt jwt) {
-        return KeycloakClaims.roles(jwt, clientId, useResourceRoleMappings);
+        return KeycloakClaims.roles(jwt, clientId, useResourceRoleMappings, roleAliases);
     }
 
     /** Own transaction: provisioning must commit even if the caller's work later rolls back. */

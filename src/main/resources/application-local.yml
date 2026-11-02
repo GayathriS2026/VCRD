@@ -45,8 +45,10 @@ vcrd:
 keycloak:
   realm: isolarsight
   auth-server-url: https://jakson.energxiq.com/auth
-  resource: ${KEYCLOAK_CLIENT_ID:om}
+  resource: ${KEYCLOAK_CLIENT_ID:vimp}
   credentials:
     secret: ${KEYCLOAK_SECRET:}
   bearer-only: true
   use-resource-role-mappings: true
+  # Temporary: map Keycloak client roles to VCRD roles until the real roles exist ("KC_ROLE=APP_ROLE,...").
+  role-aliases: ${KEYCLOAK_ROLE_ALIASES:DEVELOPER=PORTAL_ADMIN}

@@ -51,4 +51,12 @@ class KeycloakClaimsTest {
         assertThat(KeycloakClaims.sites(token(Map.of("sub", "x")))).isNull();
         assertThat(KeycloakClaims.sites(token(Map.of("sites", List.of("SITE-01"))))).containsExactly("SITE-01");
     }
+
+    @Test
+    void aliasesMapKeycloakOnlyRolesToAppRoles() {
+        Jwt jwt = token(Map.of("resource_access", Map.of("vimp", Map.of("roles", List.of("developer")))));
+        assertThat(KeycloakClaims.roles(jwt, "vimp", true)).isEmpty();
+        assertThat(KeycloakClaims.roles(jwt, "vimp", true, KeycloakClaims.parseAliases("DEVELOPER=PORTAL_ADMIN")))
+                .containsExactly(Role.PORTAL_ADMIN);
+    }
 }

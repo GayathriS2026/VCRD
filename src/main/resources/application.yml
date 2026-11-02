@@ -17,13 +17,15 @@ spring:
 keycloak:
   realm: isolarsight
   auth-server-url: https://jakson.energxiq.com/auth
-  resource: hse
+  resource: ${KEYCLOAK_CLIENT_ID:vimp}
   # Not needed to validate bearer tokens (signatures are checked against Keycloak's public keys).
   # Kept for calls that act as the client itself, e.g. token introspection or the admin API.
   credentials:
     secret: ${KEYCLOAK_SECRET:}
   bearer-only: true
   use-resource-role-mappings: true
+  # Temporary: map Keycloak client roles to VCRD roles until the real roles exist ("KC_ROLE=APP_ROLE,...").
+  role-aliases: ${KEYCLOAK_ROLE_ALIASES:DEVELOPER=PORTAL_ADMIN}
 
 vcrd:
   auth:

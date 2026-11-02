@@ -2,10 +2,12 @@ package com.vcrd.config;
 
 import com.vcrd.service.JwtService;
 import com.vcrd.util.KeycloakClaims;
+import com.vcrd.constants.Role;
 
 import static org.springframework.security.web.util.matcher.AntPathRequestMatcher.antMatcher;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -56,13 +58,15 @@ public class SecurityConfig {
     private final String keycloakIssuer;
     private final String keycloakClientId;
     private final boolean useResourceRoleMappings;
+    private final Map<String, Role> roleAliases;
 
     public SecurityConfig(@Value("${vcrd.auth.mode:local}") String authMode,
             @Value("${vcrd.jwt.secret}") String secret,
             @Value("${keycloak.auth-server-url}") String authServerUrl,
             @Value("${keycloak.realm}") String realm,
             @Value("${keycloak.resource}") String clientId,
-            @Value("${keycloak.use-resource-role-mappings:true}") boolean useResourceRoleMappings) {
+            @Value("${keycloak.use-resource-role-mappings:true}") boolean useResourceRoleMappings,
+            @Value("${keycloak.role-aliases:}") String roleAliases) {
         this.keycloakMode = "keycloak".equalsIgnoreCase(authMode);
         if (!keycloakMode && secret.length() < 32) {
             throw new IllegalStateException("vcrd.jwt.secret must be at least 32 characters");
@@ -71,6 +75,7 @@ public class SecurityConfig {
         this.keycloakIssuer = authServerUrl.replaceAll("/+$", "") + "/realms/" + realm;
         this.keycloakClientId = clientId;
         this.useResourceRoleMappings = useResourceRoleMappings;
+        this.roleAliases = KeycloakClaims.parseAliases(roleAliases);
     }
 
     @Bean
@@ -130,7 +135,7 @@ public class SecurityConfig {
 
     private Converter<Jwt, AbstractAuthenticationToken> keycloakAuthenticationConverter() {
         return jwt -> new JwtAuthenticationToken(jwt,
-                KeycloakClaims.roles(jwt, keycloakClientId, useResourceRoleMappings).stream()
+                KeycloakClaims.roles(jwt, keycloakClientId, useResourceRoleMappings, roleAliases).stream()
                         .map(role -> new SimpleGrantedAuthority("ROLE_" + role.name()))
                         .collect(Collectors.toList()),
                 jwt.getClaimAsString("preferred_username"));
