@@ -5,7 +5,16 @@ Vendor Invoice Management Portal - Spring Boot backend.
 The Maven artifact is `com.vimp:vimp-backend` and Java packages use `com.vimp`.
 The `local` and `prod` profiles serve the API under `/vimp-srvc`; update frontend and reverse proxy URLs accordingly.
 Configuration uses `vimp.*` properties and `VIMP_*` environment variables. Existing `VCRD_*` environment variables remain supported as fallbacks.
-Existing database/schema names, document storage paths, and Flyway migration files are retained to preserve existing data and migration checksums.
+PostgreSQL uses the `vimp` schema. Existing document storage paths and Flyway migration files are retained to preserve existing data and migration checksums.
+
+## Rename an existing PostgreSQL schema
+
+Stop all backend instances and connect to the existing database (`solardb` in production) as the schema owner or an administrator.
+Run [the schema rename script](docs/rename-vcrd-schema-to-vimp.sql) once before starting this version.
+This renames `vcrd` to `vimp`, including its tables and Flyway history; the database name stays `solardb`.
+If `vimp` already exists, investigate before proceeding; the script deliberately fails instead of overwriting it.
+Update any deployed `DB_URL` override to use `currentSchema=vimp`, and update external scripts or role search paths that explicitly reference `vcrd`.
+Restart the backend with the updated configuration, then refresh Schemas in pgAdmin.
 
 ## Prerequisites
 - JDK 21 (e.g. Eclipse Temurin), Maven 3.9+

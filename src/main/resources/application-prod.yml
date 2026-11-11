@@ -2,7 +2,7 @@
 # Secrets are NEVER stored here. Required environment variables:
 #   DB_PASSWORD, VIMP_JWT_SECRET (built-in login, min 32 chars)
 #   KEYCLOAK_SECRET once VIMP_AUTH_MODE=keycloak; CLAMAV_HOST if clamd is not on this machine
-# The portal uses its own schema "vcrd" in solardb, so its migrations never touch the onm schema.
+# The portal uses its own schema "vimp" in solardb, so its migrations never touch the onm schema.
 server:
   port: ${SERVER_PORT:8026}
   servlet:
@@ -11,7 +11,7 @@ server:
 spring:
   datasource:
     driver-class-name: org.postgresql.Driver
-    url: ${DB_URL:jdbc:postgresql://10.3.0.49:5432/solardb?currentSchema=vcrd}
+    url: ${DB_URL:jdbc:postgresql://10.3.0.49:5432/solardb?currentSchema=vimp}
     username: ${DB_USERNAME:solardb}
     password: ${DB_PASSWORD}
     hikari:
@@ -19,12 +19,12 @@ spring:
       # and the background jobs need their own.
       maximum-pool-size: 10
   flyway:
-    schemas: vcrd
-    default-schema: vcrd
+    schemas: vimp
+    default-schema: vimp
     create-schemas: true
   jpa:
     properties:
-      hibernate.default_schema: vcrd
+      hibernate.default_schema: vimp
   h2:
     console:
       enabled: false
