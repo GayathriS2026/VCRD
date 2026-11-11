@@ -5,6 +5,10 @@ import com.vcrd.service.InvoiceService;
 import com.vcrd.constants.InvoiceStatus;
 
 import java.util.UUID;
+import java.util.List;
+import com.vcrd.constants.DocumentCategory;
+import com.vcrd.constants.InvoiceDisplayStatus;
+import com.vcrd.dto.InvoiceDtos.DraftInvoiceRequest;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -55,6 +59,14 @@ public class InvoiceController {
         return invoiceService.create(request);
     }
 
+    @PostMapping(path = "/drafts", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public InvoiceResponse createDraft(@Valid @RequestPart("invoice") DraftInvoiceRequest request,
+            @RequestPart("invoiceDocuments") List<MultipartFile> invoiceDocuments,
+            @RequestPart(value = "poDocuments", required = false) List<MultipartFile> poDocuments) {
+        return invoiceService.createDraft(request, invoiceDocuments, poDocuments);
+    }
+
     @PutMapping("/{id}")
     public InvoiceResponse update(@PathVariable UUID id, @Valid @RequestBody InvoiceRequest request) {
         return invoiceService.update(id, request);
@@ -70,14 +82,17 @@ public class InvoiceController {
             @RequestParam(required = false) InvoiceStatus status,
             @RequestParam(required = false) String poNumber,
             @RequestParam(required = false) String siteCode,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) InvoiceDisplayStatus displayStatus,
             @PageableDefault(size = 20, sort = "updatedAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        return invoiceService.list(status, poNumber, siteCode, pageable);
+        return invoiceService.list(status, poNumber, siteCode, q, displayStatus, pageable);
     }
 
     @PostMapping(path = "/{id}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
-    public DocumentResponse upload(@PathVariable UUID id, @RequestPart("file") MultipartFile file) {
-        return invoiceService.uploadDocument(id, file);
+    public DocumentResponse upload(@PathVariable UUID id, @RequestPart("file") MultipartFile file,
+            @RequestParam(defaultValue = "INVOICE") DocumentCategory category) {
+        return invoiceService.uploadDocument(id, file, category);
     }
 
     /** Extracts fields from the document (PDF text, or OCR for scans) and compares them with the invoice. */

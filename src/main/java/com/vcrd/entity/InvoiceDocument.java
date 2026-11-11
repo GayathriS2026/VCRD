@@ -9,6 +9,9 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import com.vcrd.constants.DocumentCategory;
 
 /** Metadata of a stored invoice file. Files are immutable; a correction adds a new version. */
 @Entity
@@ -21,6 +24,10 @@ public class InvoiceDocument {
 
     @Column(nullable = false, updatable = false)
     private UUID invoiceId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, updatable = false, length = 20)
+    private DocumentCategory category = DocumentCategory.INVOICE;
 
     @Column(nullable = false, updatable = false)
     private int versionNo;
@@ -60,6 +67,14 @@ public class InvoiceDocument {
         this.storageKey = storageKey;
         this.uploadedBy = uploadedBy;
     }
+
+    public InvoiceDocument(UUID invoiceId, int versionNo, String originalFilename, String contentType,
+            long sizeBytes, String sha256, String storageKey, UUID uploadedBy, DocumentCategory category) {
+        this(invoiceId, versionNo, originalFilename, contentType, sizeBytes, sha256, storageKey, uploadedBy);
+        this.category = category;
+    }
+
+    public DocumentCategory getCategory() { return category; }
 
     public UUID getId() {
         return id;

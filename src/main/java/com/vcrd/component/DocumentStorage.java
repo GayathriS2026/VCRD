@@ -9,4 +9,7 @@ public interface DocumentStorage {
     String store(byte[] content, String extension);
 
     Resource load(String storageKey);
+
+    /** Remove a newly written blob if its database transaction rolled back. */
+    void delete(String storageKey);
 }

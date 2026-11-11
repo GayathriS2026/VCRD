@@ -21,6 +21,7 @@ import com.vcrd.component.InvoiceFieldParser;
 import com.vcrd.component.InvoiceTextReader;
 import com.vcrd.component.InvoiceTextReader.ReadText;
 import com.vcrd.constants.MatchStatus;
+import com.vcrd.constants.DocumentCategory;
 import com.vcrd.dto.ExtractionDtos.ExtractedInvoice;
 import com.vcrd.dto.ExtractionDtos.ExtractedLine;
 import com.vcrd.dto.ExtractionDtos.TextSource;
@@ -69,6 +70,13 @@ public class InvoiceVerificationService {
                 .filter(d -> d.getInvoiceId().equals(invoiceId))
                 .orElseThrow(() -> new NotFoundException("Document " + documentId + " not found"));
 
+        if (document.getCategory() != DocumentCategory.INVOICE) {
+            throw new BusinessException("NOT_INVOICE_DOCUMENT", "PO attachments cannot be verified as invoice documents");
+        }
+        if (invoice.getPurchaseOrder() == null || invoice.getInvoiceDate() == null || invoice.getLines().isEmpty()) {
+            throw new BusinessException("INVOICE_INCOMPLETE", "Complete the invoice details before verifying documents");
+        }
+
         VerificationResult result = extractAndCompare(invoice, document);
         invoice.recordMatch(result.matchStatus(), toJson(result));
         audit.record("INVOICE", invoiceId, "DOCUMENT_VERIFIED", Map.of("documentId", documentId,
@@ -81,7 +89,7 @@ public class InvoiceVerificationService {
      * those are recorded as NEEDS_REVIEW with the reason, so the user can verify manually.
      */
     public void verifyLatestAsSystem(Invoice invoice) {
-        List<InvoiceDocument> docs = documents.findByInvoiceIdOrderByVersionNo(invoice.getId());
+        List<InvoiceDocument> docs = documents.findByInvoiceIdAndCategoryOrderByVersionNo(invoice.getId(), DocumentCategory.INVOICE);
         if (docs.isEmpty()) {
             return;
         }

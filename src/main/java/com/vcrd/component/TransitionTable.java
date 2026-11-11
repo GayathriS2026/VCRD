@@ -78,6 +78,7 @@ public class TransitionTable {
                 .distinct().toArray(Role[]::new);
 
         // Phase 2-3: submit, then user verifies extracted fields
+        add(InvoiceStatus.DRAFT, SUBMIT, PENDING_VERIFICATION, SITE);
         add(UPLOADED, SUBMIT, PENDING_VERIFICATION, SITE);
         add(RETURNED, SUBMIT, PENDING_VERIFICATION, SITE);
         add(VALIDATION_FAILED, SUBMIT, PENDING_VERIFICATION, SITE);

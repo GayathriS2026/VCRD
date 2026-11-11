@@ -8,6 +8,8 @@ import com.vcrd.service.WorkflowService;
  * Status only changes through WorkflowService; allowed moves are in TransitionTable.
  */
 public enum InvoiceStatus {
+    /** Registered from the simple intake screen; SAP details may still be absent. */
+    DRAFT,
     /** Phase 2: registered with a tracking ID, document attached, not yet submitted. */
     UPLOADED,
     /** Phase 3: extracted fields awaiting user verification. */
@@ -38,6 +40,6 @@ public enum InvoiceStatus {
 
     /** States in which the submitter may still edit details and documents. */
     public boolean isEditable() {
-        return this == UPLOADED || this == PENDING_VERIFICATION || this == VALIDATION_FAILED || this == RETURNED;
+        return this == DRAFT || this == UPLOADED || this == PENDING_VERIFICATION || this == VALIDATION_FAILED || this == RETURNED;
     }
 }

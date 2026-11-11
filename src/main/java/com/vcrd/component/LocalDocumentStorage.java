@@ -30,6 +30,12 @@ public class LocalDocumentStorage implements DocumentStorage {
             Files.createDirectories(target.getParent());
             Files.write(target, content);
         } catch (IOException e) {
+            // store() has not returned a key yet, so the service cannot clean this partial write.
+            try {
+                Files.deleteIfExists(target);
+            } catch (IOException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
             throw new UncheckedIOException("Failed to store document", e);
         }
         return key;
@@ -38,6 +44,15 @@ public class LocalDocumentStorage implements DocumentStorage {
     @Override
     public Resource load(String storageKey) {
         return new FileSystemResource(resolve(storageKey));
+    }
+
+    @Override
+    public void delete(String storageKey) {
+        try {
+            Files.deleteIfExists(resolve(storageKey));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to remove rolled-back document", e);
+        }
     }
 
     private Path resolve(String key) {

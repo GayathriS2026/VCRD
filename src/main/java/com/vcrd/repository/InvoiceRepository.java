@@ -16,6 +16,9 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface InvoiceRepository extends JpaRepository<Invoice, UUID>, JpaSpecificationExecutor<Invoice> {
 
+    boolean existsBySiteCodeAndVendorInvoiceNoIgnoreCaseAndStatusNot(
+            String siteCode, String vendorInvoiceNo, InvoiceStatus excludedStatus);
+
     boolean existsByVendorCodeAndVendorInvoiceNoIgnoreCaseAndStatusNotAndIdNot(
             String vendorCode, String vendorInvoiceNo, InvoiceStatus excludedStatus, UUID excludedId);
 

@@ -40,23 +40,29 @@ public class Invoice {
     @Column(nullable = false, unique = true, updatable = false)
     private String trackingNo;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "po_id")
     private PurchaseOrder purchaseOrder;
+
+    @Column(length = 20)
+    private String poNumber;
+
+    @Column(length = 200)
+    private String siteName;
 
     @Column(nullable = false)
     private String siteCode;
 
-    @Column(nullable = false)
+    @Column
     private String vendorCode;
 
     @Column(nullable = false)
     private String vendorInvoiceNo;
 
-    @Column(nullable = false)
+    @Column
     private LocalDate invoiceDate;
 
-    @Column(nullable = false)
+    @Column
     private String currency;
 
     private BigDecimal baseAmount;
@@ -173,11 +179,37 @@ public class Invoice {
     public Invoice(String trackingNo, PurchaseOrder purchaseOrder, UUID createdBy) {
         this.trackingNo = trackingNo;
         this.purchaseOrder = purchaseOrder;
+        this.poNumber = purchaseOrder.getPoNumber();
         this.siteCode = purchaseOrder.getSiteCode();
         this.vendorCode = purchaseOrder.getVendorCode();
         this.currency = purchaseOrder.getCurrency();
         this.createdBy = createdBy;
     }
+
+    public Invoice(String trackingNo, String invoiceNumber, String siteCode, String siteName,
+            String poNumber, String remarks, UUID createdBy) {
+        this.trackingNo = trackingNo;
+        this.vendorInvoiceNo = invoiceNumber;
+        this.siteCode = siteCode;
+        this.siteName = siteName;
+        this.poNumber = poNumber;
+        this.remarks = remarks;
+        this.createdBy = createdBy;
+        this.status = InvoiceStatus.DRAFT;
+    }
+
+    /** Called only after checking the PO release, site, number and vendor duplicate rules. */
+    public void linkPurchaseOrder(PurchaseOrder po) {
+        this.purchaseOrder = po;
+        this.poNumber = po.getPoNumber();
+        this.vendorCode = po.getVendorCode();
+        this.currency = po.getCurrency();
+        touch();
+    }
+
+    public String getPoNumber() { return poNumber; }
+
+    public String getSiteName() { return siteName == null ? siteCode : siteName; }
 
     public void updateDetails(String vendorInvoiceNo, LocalDate invoiceDate, BigDecimal baseAmount,
             BigDecimal taxAmount, BigDecimal totalAmount) {

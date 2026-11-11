@@ -7,9 +7,11 @@ import com.vcrd.dto.InvoiceDtos;
 import com.vcrd.entity.InvoiceLine;
 import com.vcrd.repository.InvoiceRepository;
 import com.vcrd.constants.InvoiceStatus;
+import com.vcrd.constants.InvoiceDisplayStatus;
+import com.vcrd.constants.DocumentCategory;
+import com.vcrd.component.InvoiceUploadValidator;
+import com.vcrd.dto.InvoiceDtos.DraftInvoiceRequest;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Year;
@@ -17,6 +19,8 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -25,6 +29,8 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.vcrd.service.AuditService;
@@ -56,12 +62,6 @@ public class InvoiceService {
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(InvoiceService.class);
 
-    /** Accepted upload types until the business confirms the final list. */
-    private static final Map<String, String> ALLOWED_TYPES = Map.of(
-            "application/pdf", "pdf",
-            "image/png", "png",
-            "image/jpeg", "jpg");
-
     private static final List<Role> CAN_CREATE = List.of(Role.SITE_USER, Role.SITE_MANAGER);
 
     private final InvoiceRepository invoices;
@@ -73,11 +73,12 @@ public class InvoiceService {
     private final CurrentUserProvider currentUser;
     private final WorkflowProperties workflowProperties;
     private final MalwareScanner malwareScanner;
+    private final InvoiceUploadValidator uploadValidator;
 
     public InvoiceService(InvoiceRepository invoices, InvoiceDocumentRepository documents,
             InvoiceAccessPolicy accessPolicy, PoService poService, DocumentStorage storage, AuditService audit,
             CurrentUserProvider currentUser, WorkflowProperties workflowProperties,
-            MalwareScanner malwareScanner) {
+            MalwareScanner malwareScanner, InvoiceUploadValidator uploadValidator) {
         this.invoices = invoices;
         this.documents = documents;
         this.accessPolicy = accessPolicy;
@@ -87,6 +88,40 @@ public class InvoiceService {
         this.currentUser = currentUser;
         this.workflowProperties = workflowProperties;
         this.malwareScanner = malwareScanner;
+        this.uploadValidator = uploadValidator;
+    }
+
+    @Transactional
+    public InvoiceResponse createDraft(DraftInvoiceRequest request, List<MultipartFile> invoiceFiles,
+            List<MultipartFile> poFiles) {
+        CurrentUser user = currentUser.get();
+        if (!user.hasAnyRole(CAN_CREATE) || !user.canAccessSite(request.siteCode().trim())) {
+            throw new AccessDeniedException("Only site users can register invoices for their assigned sites");
+        }
+        if (invoiceFiles == null || invoiceFiles.isEmpty()) {
+            throw new BusinessException("DOCUMENT_REQUIRED", "At least one invoice document is required");
+        }
+        String number = request.invoiceNumber().trim();
+        if (invoices.existsBySiteCodeAndVendorInvoiceNoIgnoreCaseAndStatusNot(
+                request.siteCode().trim(), number, InvoiceStatus.REJECTED)) {
+            throw duplicateInvoice(number);
+        }
+        // Validate the entire batch before writing any files.
+        List<PreparedDocument> prepared = new ArrayList<>();
+        for (MultipartFile file : invoiceFiles) prepared.add(prepare(file, DocumentCategory.INVOICE));
+        if (poFiles != null) {
+            for (MultipartFile file : poFiles) prepared.add(prepare(file, DocumentCategory.PO));
+        }
+        Invoice invoice = invoices.save(new Invoice(nextTrackingNo(), number, request.siteCode().trim(),
+                request.siteName().trim(), blankToNull(request.poNumber()), request.remarks(), user.id()));
+        // Scan and check duplicates before storing even the first file.
+        for (PreparedDocument document : prepared) checkUpload(invoice.getId(), document);
+        int version = 0;
+        for (PreparedDocument document : prepared) storeDocument(invoice, document, ++version, user);
+        audit.record("INVOICE", invoice.getId(), "INVOICE_DRAFT_CREATED",
+                Map.of("trackingNo", invoice.getTrackingNo(), "invoiceNumber", number,
+                        "siteCode", invoice.getSiteCode(), "documentCount", prepared.size()));
+        return toResponse(invoice);
     }
 
     @Transactional
@@ -96,12 +131,9 @@ public class InvoiceService {
             throw new AccessDeniedException("Only site users can create invoices");
         }
         PurchaseOrder po = poService.loadPo(request.poNumber(), false);
-        if (!po.isReleased()) {
-            throw new BusinessException("PO_NOT_RELEASED",
-                    "PO " + po.getPoNumber() + " is not released (status " + po.getReleaseStatus() + ")");
-        }
+        requireReleased(po);
         if (invoices.existsByVendorCodeAndVendorInvoiceNoIgnoreCaseAndStatusNot(
-                po.getVendorCode(), request.vendorInvoiceNo(), InvoiceStatus.REJECTED)) {
+                po.getVendorCode(), request.vendorInvoiceNo().trim(), InvoiceStatus.REJECTED)) {
             throw duplicateInvoice(request.vendorInvoiceNo());
         }
 
@@ -120,55 +152,96 @@ public class InvoiceService {
         Invoice invoice = accessPolicy.loadAccessible(invoiceId, user);
         requireEditableBySubmitter(invoice, user);
         PurchaseOrder po = invoice.getPurchaseOrder();
-        if (!po.getPoNumber().equals(request.poNumber())) {
+        if (invoice.getStatus() == InvoiceStatus.DRAFT && po == null) {
+            po = poService.loadPo(request.poNumber().trim(), false);
+            requireReleased(po);
+            if (!invoice.getSiteCode().equals(po.getSiteCode())) {
+                throw new BusinessException("PO_SITE_MISMATCH", "The PO must belong to the invoice's site");
+            }
+            if (invoice.getPoNumber() != null && !invoice.getPoNumber().equals(po.getPoNumber())) {
+                throw new BusinessException("PO_CHANGE_NOT_ALLOWED", "The PO must match the number entered at intake");
+            }
+        }
+        if (!po.getPoNumber().equals(request.poNumber().trim())) {
             throw new BusinessException("PO_CHANGE_NOT_ALLOWED", "An invoice cannot be moved to a different PO");
         }
         if (invoices.existsByVendorCodeAndVendorInvoiceNoIgnoreCaseAndStatusNotAndIdNot(
-                po.getVendorCode(), request.vendorInvoiceNo(), InvoiceStatus.REJECTED, invoice.getId())) {
+                po.getVendorCode(), request.vendorInvoiceNo().trim(), InvoiceStatus.REJECTED, invoice.getId())) {
             throw duplicateInvoice(request.vendorInvoiceNo());
         }
         Map<String, Object> before = snapshot(invoice);
-        applyRequest(invoice, po, request);
-        if (invoice.getStatus() == InvoiceStatus.PENDING_VERIFICATION) {
-            invoice.resetMatch(); // re-check the document against the corrected details
+        if (invoice.getStatus() == InvoiceStatus.DRAFT) {
+            requireReleased(po);
+            invoice.linkPurchaseOrder(po);
         }
+        applyRequest(invoice, po, request);
+        // Any edit invalidates a prior comparison, including one performed before submission.
+        invoice.resetMatch();
         audit.record("INVOICE", invoice.getId(), "INVOICE_UPDATED", Map.of("before", before, "after", snapshot(invoice)));
         return toResponse(invoice);
     }
 
     @Transactional
     public DocumentResponse uploadDocument(UUID invoiceId, MultipartFile file) {
+        return uploadDocument(invoiceId, file, DocumentCategory.INVOICE);
+    }
+
+    @Transactional
+    public DocumentResponse uploadDocument(UUID invoiceId, MultipartFile file, DocumentCategory category) {
         CurrentUser user = currentUser.get();
         Invoice invoice = accessPolicy.loadAccessible(invoiceId, user);
         requireEditableBySubmitter(invoice, user);
 
-        if (file.isEmpty()) {
-            throw new BusinessException("EMPTY_FILE", "Uploaded file is empty");
-        }
-        String extension = ALLOWED_TYPES.get(file.getContentType());
-        if (extension == null) {
-            throw new BusinessException("UNSUPPORTED_FILE_TYPE", "Allowed types: PDF, PNG, JPG");
-        }
-        byte[] content = readBytes(file);
-        if (!matchesSignature(content, extension)) {
-            throw new BusinessException("FILE_CONTENT_MISMATCH", "File content does not match its declared type");
-        }
-        scanForMalware(invoiceId, content, file.getOriginalFilename());
-        String sha256 = sha256(content);
-        if (documents.existsBySha256AndInvoiceIdNot(sha256, invoiceId)) {
-            throw new BusinessException("DUPLICATE_DOCUMENT",
-                    "The same file has already been uploaded for another invoice");
-        }
-
-        String key = storage.store(content, extension);
+        PreparedDocument prepared = prepare(file, category);
+        checkUpload(invoiceId, prepared);
         int versionNo = (int) documents.countByInvoiceId(invoiceId) + 1;
-        InvoiceDocument document = documents.save(new InvoiceDocument(invoiceId, versionNo,
-                safeFilename(file.getOriginalFilename()), file.getContentType(), content.length, sha256, key,
-                user.id()));
+        return DocumentResponse.from(storeDocument(invoice, prepared, versionNo, user));
+    }
 
-        audit.record("INVOICE", invoiceId, "DOCUMENT_UPLOADED",
-                Map.of("documentId", document.getId(), "versionNo", versionNo, "sha256", sha256));
-        return DocumentResponse.from(document);
+    private record PreparedDocument(MultipartFile file, byte[] content, String extension,
+            String sha256, DocumentCategory category) { }
+
+    private PreparedDocument prepare(MultipartFile file, DocumentCategory category) {
+        var validated = uploadValidator.validate(file);
+        return new PreparedDocument(file, validated.content(), validated.extension(), sha256(validated.content()), category);
+    }
+
+    private void checkUpload(UUID invoiceId, PreparedDocument document) {
+        scanForMalware(invoiceId, document.content(), document.file().getOriginalFilename());
+        if (document.category() == DocumentCategory.INVOICE && documents.existsBySha256AndCategoryAndInvoiceIdNot(
+                document.sha256(), DocumentCategory.INVOICE, invoiceId)) {
+            throw new BusinessException("DUPLICATE_DOCUMENT", "The same invoice file has already been uploaded for another invoice");
+        }
+    }
+
+    private InvoiceDocument storeDocument(Invoice invoice, PreparedDocument prepared, int version, CurrentUser user) {
+        String key = storage.store(prepared.content(), prepared.extension());
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_COMMITTED) {
+                    try { storage.delete(key); }
+                    catch (RuntimeException e) { log.error("Failed to clean up rolled-back document {}", key, e); }
+                }
+            }
+        });
+        InvoiceDocument document = documents.save(new InvoiceDocument(invoice.getId(), version,
+                safeFilename(prepared.file().getOriginalFilename()), prepared.file().getContentType(),
+                prepared.content().length, prepared.sha256(), key, user.id(), prepared.category()));
+        if (prepared.category() == DocumentCategory.INVOICE) invoice.resetMatch();
+        else invoice.updateReceipt(invoice.getInvoiceReceiptDate(), invoice.getRemarks());
+        audit.record("INVOICE", invoice.getId(), "DOCUMENT_UPLOADED", Map.of("documentId", document.getId(),
+                "versionNo", version, "sha256", prepared.sha256(), "category", prepared.category()));
+        return document;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static void requireReleased(PurchaseOrder po) {
+        if (!po.isReleased()) throw new BusinessException("PO_NOT_RELEASED",
+                "PO " + po.getPoNumber() + " is not released (status " + po.getReleaseStatus() + ")");
     }
 
     @Transactional(readOnly = true)
@@ -202,6 +275,12 @@ public class InvoiceService {
 
     @Transactional(readOnly = true)
     public Page<InvoiceSummary> list(InvoiceStatus status, String poNumber, String siteCode, Pageable pageable) {
+        return list(status, poNumber, siteCode, null, null, pageable);
+    }
+
+    @Transactional(readOnly = true)
+    public Page<InvoiceSummary> list(InvoiceStatus status, String poNumber, String siteCode, String q,
+            InvoiceDisplayStatus displayStatus, Pageable pageable) {
         CurrentUser user = currentUser.get();
         Specification<Invoice> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -209,10 +288,20 @@ public class InvoiceService {
                 predicates.add(cb.equal(root.get("status"), status));
             }
             if (poNumber != null && !poNumber.isBlank()) {
-                predicates.add(cb.equal(root.get("purchaseOrder").get("poNumber"), poNumber));
+                predicates.add(cb.equal(root.get("poNumber"), poNumber.trim()));
             }
             if (siteCode != null && !siteCode.isBlank()) {
                 predicates.add(cb.equal(root.get("siteCode"), siteCode));
+            }
+            if (displayStatus != null) predicates.add(root.get("status").in(displayStatus.lifecycleStatuses()));
+            if (q != null && !q.isBlank()) {
+                String pattern = "%" + q.trim().toLowerCase(Locale.ROOT)
+                        .replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("vendorInvoiceNo")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("poNumber")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("siteCode")), pattern, '\\'),
+                        cb.like(cb.lower(root.get("siteName")), pattern, '\\')));
             }
             if (!user.hasGlobalAccess()) {
                 predicates.add(user.sites().isEmpty()
@@ -221,7 +310,12 @@ public class InvoiceService {
             }
             return cb.and(predicates.toArray(Predicate[]::new));
         };
-        return invoices.findAll(spec, pageable).map(this::toSummary);
+        Page<Invoice> page = invoices.findAll(spec, pageable);
+        List<UUID> ids = page.getContent().stream().map(Invoice::getId).toList();
+        Map<UUID, List<InvoiceDocument>> pageDocuments = ids.isEmpty() ? Map.of()
+                : documents.findByInvoiceIdInOrderByVersionNo(ids).stream()
+                        .collect(Collectors.groupingBy(InvoiceDocument::getInvoiceId));
+        return page.map(i -> toSummary(i, pageDocuments.getOrDefault(i.getId(), List.of())));
     }
 
     public InvoiceResponse toResponse(Invoice invoice) {
@@ -233,7 +327,7 @@ public class InvoiceService {
                 .map(DocumentResponse::from)
                 .toList();
         return new InvoiceResponse(invoice.getId(), invoice.getTrackingNo(),
-                invoice.getPurchaseOrder().getPoNumber(), invoice.getSiteCode(), invoice.getVendorCode(),
+                invoice.getPoNumber(), invoice.getSiteCode(), invoice.getVendorCode(),
                 invoice.getVendorInvoiceNo(), invoice.getInvoiceDate(), invoice.getCurrency(),
                 invoice.getBaseAmount(), invoice.getTaxAmount(), invoice.getTotalAmount(),
                 invoice.getCgstAmount(), invoice.getSgstAmount(), invoice.getIgstAmount(), invoice.getOtherTaxes(),
@@ -241,7 +335,7 @@ public class InvoiceService {
                 ParkingInfo.from(invoice), ClearingInfo.from(invoice), InvoiceDtos.SapRefs.from(invoice), approvalStep(invoice),
                 invoice.getMatchStatus(), invoice.getMatchCheckedAt(), invoice.getStatus(),
                 invoice.getCreatedBy(), invoice.getCreatedAt(), invoice.getUpdatedAt(), invoice.getVersion(), lines,
-                docs);
+                docs, invoice.getSiteName(), InvoiceDisplayStatus.from(invoice.getStatus()));
     }
 
     private void scanForMalware(UUID invoiceId, byte[] content, String filename) {
@@ -271,10 +365,13 @@ public class InvoiceService {
         return new ApprovalStep(level.name(), index + 1, levels.size(), level.roles());
     }
 
-    private InvoiceSummary toSummary(Invoice i) {
-        return new InvoiceSummary(i.getId(), i.getTrackingNo(), i.getPurchaseOrder().getPoNumber(), i.getSiteCode(),
+    private InvoiceSummary toSummary(Invoice i, List<InvoiceDocument> docs) {
+        long invoiceCount = docs.stream().filter(d -> d.getCategory() == DocumentCategory.INVOICE).count();
+        return new InvoiceSummary(i.getId(), i.getTrackingNo(), i.getPoNumber(), i.getSiteCode(),
                 i.getVendorInvoiceNo(), i.getInvoiceDate(), i.getTotalAmount(), i.getCurrency(), i.getStatus(),
-                i.getUpdatedAt());
+                i.getUpdatedAt(), i.getSiteName(), i.getRemarks(), i.getCreatedAt(),
+                InvoiceDisplayStatus.from(i.getStatus()), invoiceCount, docs.size() - invoiceCount,
+                docs.stream().map(DocumentResponse::from).toList());
     }
 
     private void applyRequest(Invoice invoice, PurchaseOrder po, InvoiceRequest request) {
@@ -328,24 +425,6 @@ public class InvoiceService {
                 .map(l -> l.getPoLine().getItemNo() + ":" + l.getQuantity() + "@" + l.getUnitPrice())
                 .toList());
         return m;
-    }
-
-    private static byte[] readBytes(MultipartFile file) {
-        try {
-            return file.getBytes();
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
-    /** Basic magic-number check so a renamed executable is not accepted as a PDF/image. */
-    private static boolean matchesSignature(byte[] c, String extension) {
-        return switch (extension) {
-            case "pdf" -> c.length > 4 && c[0] == '%' && c[1] == 'P' && c[2] == 'D' && c[3] == 'F';
-            case "png" -> c.length > 8 && (c[0] & 0xFF) == 0x89 && c[1] == 'P' && c[2] == 'N' && c[3] == 'G';
-            case "jpg" -> c.length > 3 && (c[0] & 0xFF) == 0xFF && (c[1] & 0xFF) == 0xD8;
-            default -> false;
-        };
     }
 
     private static String sha256(byte[] content) {

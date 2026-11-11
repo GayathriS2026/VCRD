@@ -5,6 +5,8 @@ import com.vcrd.entity.InvoiceDocument;
 import com.vcrd.constants.InvoiceStatus;
 import com.vcrd.constants.MatchStatus;
 import com.vcrd.constants.Role;
+import com.vcrd.constants.DocumentCategory;
+import com.vcrd.constants.InvoiceDisplayStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -26,8 +28,16 @@ public final class InvoiceDtos {
     private InvoiceDtos() {
     }
 
+    public record DraftInvoiceRequest(
+            @NotBlank @Size(max = 50) String invoiceNumber,
+            @NotBlank @Size(max = 50) String siteCode,
+            @NotBlank @Size(max = 200) String siteName,
+            @Size(max = 20) String poNumber,
+            @Size(max = 500) String remarks) {
+    }
+
     public record InvoiceRequest(
-            @NotBlank String poNumber,
+            @NotBlank @Size(max = 20) String poNumber,
             @NotBlank @Size(max = 50) String vendorInvoiceNo,
             @NotNull @PastOrPresent LocalDate invoiceDate,
             @PositiveOrZero BigDecimal baseAmount,
@@ -80,7 +90,9 @@ public final class InvoiceDtos {
             Instant updatedAt,
             long version,
             List<LineResponse> lines,
-            List<DocumentResponse> documents) {
+            List<DocumentResponse> documents,
+            String siteName,
+            InvoiceDisplayStatus displayStatus) {
     }
 
     public record ParkingInfo(String parkedDocNo, String parkedBySapId, String parkedByName, Instant parkedAt,
@@ -121,16 +133,19 @@ public final class InvoiceDtos {
     }
 
     public record DocumentResponse(UUID id, int versionNo, String originalFilename, String contentType,
-            long sizeBytes, String sha256, Instant uploadedAt) {
+            long sizeBytes, String sha256, Instant uploadedAt, DocumentCategory category, String downloadUrl) {
 
         public static DocumentResponse from(InvoiceDocument d) {
             return new DocumentResponse(d.getId(), d.getVersionNo(), d.getOriginalFilename(), d.getContentType(),
-                    d.getSizeBytes(), d.getSha256(), d.getUploadedAt());
+                    d.getSizeBytes(), d.getSha256(), d.getUploadedAt(), d.getCategory(),
+                    "/api/v1/invoices/" + d.getInvoiceId() + "/documents/" + d.getId() + "/content");
         }
     }
 
     public record InvoiceSummary(UUID id, String trackingNo, String poNumber, String siteCode,
             String vendorInvoiceNo, LocalDate invoiceDate, BigDecimal totalAmount, String currency,
-            InvoiceStatus status, Instant updatedAt) {
+            InvoiceStatus status, Instant updatedAt, String siteName, String remarks, Instant createdAt,
+            InvoiceDisplayStatus displayStatus, long invoiceDocumentCount, long poDocumentCount,
+            List<DocumentResponse> documents) {
     }
 }

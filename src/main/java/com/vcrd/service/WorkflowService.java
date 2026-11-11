@@ -30,6 +30,7 @@ import com.vcrd.dto.InvoiceDtos.InvoiceResponse;
 import com.vcrd.service.InvoiceService;
 import com.vcrd.service.InvoiceStateChanger;
 import com.vcrd.constants.InvoiceStatus;
+import com.vcrd.constants.DocumentCategory;
 import com.vcrd.dto.CurrentUser;
 import com.vcrd.component.CurrentUserProvider;
 import com.vcrd.component.TransitionTable.Transition;
@@ -164,6 +165,7 @@ public class WorkflowService {
                 .filter(e -> user.hasAnyRole(e.getValue().allowedRoles()))
                 .filter(e -> !DECISIONS.contains(e.getKey()) || !invoice.getCreatedBy().equals(user.id()))
                 .filter(e -> !LEVEL_DECISIONS.contains(e.getKey()) || approvalDecisionProblem(invoice, user) == null)
+                .filter(e -> e.getKey() != WorkflowAction.SUBMIT || isComplete(invoice))
                 .map(Map.Entry::getKey)
                 .toList();
     }
@@ -203,8 +205,13 @@ public class WorkflowService {
     }
 
     private void checkGuards(Invoice invoice, WorkflowAction action, String remark, CurrentUser user) {
-        if (action == WorkflowAction.SUBMIT && documents.countByInvoiceId(invoice.getId()) == 0) {
-            throw new BusinessException("DOCUMENT_REQUIRED", "Upload the invoice document before submitting");
+        if (action == WorkflowAction.SUBMIT) {
+            if (!isComplete(invoice)) {
+                throw new BusinessException("INVOICE_INCOMPLETE", "Link a released PO and complete the invoice date and lines before submitting");
+            }
+            if (documents.countByInvoiceIdAndCategory(invoice.getId(), DocumentCategory.INVOICE) == 0) {
+                throw new BusinessException("DOCUMENT_REQUIRED", "Upload the invoice document before submitting");
+            }
         }
         if (action == WorkflowAction.VERIFY) {
             switch (invoice.getMatchStatus()) {
@@ -234,5 +241,10 @@ public class WorkflowService {
                 throw new AccessDeniedException(problem);
             }
         }
+    }
+
+    private static boolean isComplete(Invoice invoice) {
+        return invoice.getPurchaseOrder() != null && invoice.getPurchaseOrder().isReleased()
+                && invoice.getInvoiceDate() != null && !invoice.getLines().isEmpty();
     }
 }
