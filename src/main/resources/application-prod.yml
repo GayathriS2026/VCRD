@@ -1,12 +1,12 @@
 # Production. Activate with: SPRING_PROFILES_ACTIVE=prod
 # Secrets are NEVER stored here. Required environment variables:
-#   DB_PASSWORD, VCRD_JWT_SECRET (built-in login, min 32 chars)
-#   KEYCLOAK_SECRET once VCRD_AUTH_MODE=keycloak; CLAMAV_HOST if clamd is not on this machine
+#   DB_PASSWORD, VIMP_JWT_SECRET (built-in login, min 32 chars)
+#   KEYCLOAK_SECRET once VIMP_AUTH_MODE=keycloak; CLAMAV_HOST if clamd is not on this machine
 # The portal uses its own schema "vcrd" in solardb, so its migrations never touch the onm schema.
 server:
   port: ${SERVER_PORT:8026}
   servlet:
-    context-path: /vcrd-srvc
+    context-path: /vimp-srvc
 
 spring:
   datasource:
@@ -31,7 +31,7 @@ spring:
 
 logging:
   file:
-    name: /opt/ipredict/vcrd/application.log
+    name: /opt/ipredict/vimp/application.log
   level:
     org.hibernate.SQL: INFO
 
@@ -41,19 +41,19 @@ springdoc:
   api-docs:
     enabled: false
 
-vcrd:
+vimp:
   auth:
-    # Built-in login until the VCRD Keycloak client exists; then set VCRD_AUTH_MODE=keycloak.
-    mode: ${VCRD_AUTH_MODE:local}
+    # Built-in login until the VIMP Keycloak client exists; then set VIMP_AUTH_MODE=keycloak.
+    mode: ${VIMP_AUTH_MODE:${VCRD_AUTH_MODE:local}}
   jwt:
-    secret: ${VCRD_JWT_SECRET}
+    secret: ${VIMP_JWT_SECRET:${VCRD_JWT_SECRET}}
   # Demo users have a password published in the code: only for a first trial, never with real data.
   demo-users:
-    enabled: ${VCRD_DEMO_USERS:false}
+    enabled: ${VIMP_DEMO_USERS:${VCRD_DEMO_USERS:false}}
   storage:
-    root: ${VCRD_STORAGE_ROOT:/opt/ipredict/vcrd/documents}
+    root: ${VIMP_STORAGE_ROOT:${VCRD_STORAGE_ROOT:/opt/ipredict/vcrd/documents}}
   ocr:
-    tessdata-path: ${VCRD_TESSDATA_PATH:/opt/ipredict/vcrd/tessdata}
+    tessdata-path: ${VIMP_TESSDATA_PATH:${VCRD_TESSDATA_PATH:/opt/ipredict/vcrd/tessdata}}
   malware:
     mode: clamav
     clamav:
@@ -68,5 +68,5 @@ keycloak:
     secret: ${KEYCLOAK_SECRET:}
   bearer-only: true
   use-resource-role-mappings: true
-  # Temporary: map Keycloak client roles to VCRD roles until the real roles exist ("KC_ROLE=APP_ROLE,...").
+  # Temporary: map Keycloak client roles to VIMP roles until the real roles exist ("KC_ROLE=APP_ROLE,...").
   role-aliases: ${KEYCLOAK_ROLE_ALIASES:}

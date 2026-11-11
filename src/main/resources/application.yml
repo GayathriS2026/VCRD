@@ -1,6 +1,6 @@
 spring:
   application:
-    name: vcrd-backend
+    name: vimp-backend
   profiles:
     active: h2
   jpa:
@@ -24,30 +24,30 @@ keycloak:
     secret: ${KEYCLOAK_SECRET:}
   bearer-only: true
   use-resource-role-mappings: true
-  # Temporary: map Keycloak client roles to VCRD roles until the real roles exist ("KC_ROLE=APP_ROLE,...").
+  # Temporary: map Keycloak client roles to VIMP roles until the real roles exist ("KC_ROLE=APP_ROLE,...").
   role-aliases: ${KEYCLOAK_ROLE_ALIASES:DEVELOPER=PORTAL_ADMIN}
 
-vcrd:
+vimp:
   auth:
     # keycloak = tokens from Keycloak (use in every shared environment); local = dev login with demo users.
-    mode: ${VCRD_AUTH_MODE:local}
+    mode: ${VIMP_AUTH_MODE:${VCRD_AUTH_MODE:local}}
   malware:
     # clamav = scan every upload with clamd (uploads refused if it is unreachable); disabled = local dev only.
-    mode: ${VCRD_MALWARE_MODE:disabled}
+    mode: ${VIMP_MALWARE_MODE:${VCRD_MALWARE_MODE:disabled}}
     clamav:
       host: ${CLAMAV_HOST:localhost}
       port: ${CLAMAV_PORT:3310}
       timeout: PT30S
   jwt:
-    # Dev-only secret (min 32 chars). Override with VCRD_JWT_SECRET in any shared environment.
-    secret: ${VCRD_JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+    # Dev-only secret (min 32 chars). Override with VIMP_JWT_SECRET in any shared environment.
+    secret: ${VIMP_JWT_SECRET:${VCRD_JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}}
     expiry-minutes: 480
   storage:
-    root: ${VCRD_STORAGE_ROOT:./data/documents}
+    root: ${VIMP_STORAGE_ROOT:${VCRD_STORAGE_ROOT:./data/documents}}
   ocr:
     # Folder containing <language>.traineddata (e.g. C:/tessdata). Blank = OCR disabled;
     # digital PDFs still work, scanned ones are rejected with OCR_NOT_CONFIGURED.
-    tessdata-path: ${VCRD_TESSDATA_PATH:}
+    tessdata-path: ${VIMP_TESSDATA_PATH:${VCRD_TESSDATA_PATH:}}
     language: eng
   sap:
     # mock = in-memory sample POs and SAP invoice processing. Real gateway will be added once the SAP interface is confirmed.

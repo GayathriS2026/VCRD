@@ -1,6 +1,11 @@
-# VCRD Backend
+# VIMP Backend
 
 Vendor Invoice Management Portal - Spring Boot backend.
+
+The Maven artifact is `com.vimp:vimp-backend` and Java packages use `com.vimp`.
+The `local` and `prod` profiles serve the API under `/vimp-srvc`; update frontend and reverse proxy URLs accordingly.
+Configuration uses `vimp.*` properties and `VIMP_*` environment variables. Existing `VCRD_*` environment variables remain supported as fallbacks.
+Existing database/schema names, document storage paths, and Flyway migration files are retained to preserve existing data and migration checksums.
 
 ## Prerequisites
 - JDK 21 (e.g. Eclipse Temurin), Maven 3.9+
@@ -48,16 +53,16 @@ Mock SAP POs: `4500012345` (SITE-01), `4500012346` (SITE-02), `4500012347` (SITE
 ## Still open (waiting on business/SAP decisions)
 - Real SAP gateways: replace `MockSapPoGateway` / `MockSapInvoiceGateway` once the interface (RFC/BAPI or OData,
   custom Z PARK function) is confirmed. SAP must store our correlation ID on parked/posted documents.
-- Confirm the proposed roles and approval levels in `vcrd.workflow`
+- Confirm the proposed roles and approval levels in `vimp.workflow`
 - Notifications and reports
 
 ## Configuration for shared environments
 
 | Setting | Env variable | Notes |
 |---|---|---|
-| `vcrd.auth.mode` | `VCRD_AUTH_MODE` | `keycloak` in every shared environment; `local` (demo users) for dev only |
+| `vimp.auth.mode` | `VIMP_AUTH_MODE` | `keycloak` in every shared environment; `local` (demo users) for dev only |
 | `keycloak.*` | `KEYCLOAK_SECRET` | Realm `isolarsight`, client `keycloak.resource`. Roles are **client roles** on that client, named like `PMO`, `SITE_USER`, `APPROVER`, `FINANCE`. Optional `sites` token claim (user attribute mapper) sets the user's sites; otherwise sites are assigned in the portal DB |
-| `vcrd.malware.mode` | `VCRD_MALWARE_MODE` | `clamav` outside local dev (uploads are refused if clamd is unreachable); host/port via `CLAMAV_HOST` / `CLAMAV_PORT` |
-| `vcrd.ocr.tessdata-path` | `VCRD_TESSDATA_PATH` | Folder containing `eng.traineddata`; blank disables OCR for scanned invoices |
-| `vcrd.workflow.*` | | Who starts Z PARK / MIRO and the approval levels (by invoice amount) |
-| `vcrd.sap.mode` | | `mock` until the real SAP connector is built |
+| `vimp.malware.mode` | `VIMP_MALWARE_MODE` | `clamav` outside local dev (uploads are refused if clamd is unreachable); host/port via `CLAMAV_HOST` / `CLAMAV_PORT` |
+| `vimp.ocr.tessdata-path` | `VIMP_TESSDATA_PATH` | Folder containing `eng.traineddata`; blank disables OCR for scanned invoices |
+| `vimp.workflow.*` | | Who starts Z PARK / MIRO and the approval levels (by invoice amount) |
+| `vimp.sap.mode` | | `mock` until the real SAP connector is built |

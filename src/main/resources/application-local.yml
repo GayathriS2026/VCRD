@@ -3,7 +3,7 @@
 server:
   port: 8026
   servlet:
-    context-path: /vcrd-srvc
+    context-path: /vimp-srvc
 
 spring:
   datasource:
@@ -31,16 +31,16 @@ logging:
   level:
     org.hibernate.SQL: DEBUG
 
-vcrd:
+vimp:
   auth:
-    # Built-in login until the VCRD Keycloak client exists; then set VCRD_AUTH_MODE=keycloak.
-    mode: ${VCRD_AUTH_MODE:local}
+    # Built-in login until the VIMP Keycloak client exists; then set VIMP_AUTH_MODE=keycloak.
+    mode: ${VIMP_AUTH_MODE:${VCRD_AUTH_MODE:local}}
   storage:
-    root: ${VCRD_STORAGE_ROOT:D:/Energxiq_source_code/vcrd-documents}
+    root: ${VIMP_STORAGE_ROOT:${VCRD_STORAGE_ROOT:D:/Energxiq_source_code/vcrd-documents}}
   ocr:
-    tessdata-path: ${VCRD_TESSDATA_PATH:}
+    tessdata-path: ${VIMP_TESSDATA_PATH:${VCRD_TESSDATA_PATH:}}
   malware:
-    mode: ${VCRD_MALWARE_MODE:disabled}
+    mode: ${VIMP_MALWARE_MODE:${VCRD_MALWARE_MODE:disabled}}
 
 keycloak:
   realm: isolarsight
@@ -50,5 +50,5 @@ keycloak:
     secret: ${KEYCLOAK_SECRET:}
   bearer-only: true
   use-resource-role-mappings: true
-  # Temporary: map Keycloak client roles to VCRD roles until the real roles exist ("KC_ROLE=APP_ROLE,...").
+  # Temporary: map Keycloak client roles to VIMP roles until the real roles exist ("KC_ROLE=APP_ROLE,...").
   role-aliases: ${KEYCLOAK_ROLE_ALIASES:DEVELOPER=PORTAL_ADMIN}

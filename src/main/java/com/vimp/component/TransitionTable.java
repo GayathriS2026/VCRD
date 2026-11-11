@@ -1,0 +1,134 @@
+package com.vimp.component;
+
+import static com.vimp.constants.InvoiceStatus.APPROVED;
+import static com.vimp.constants.InvoiceStatus.AWAITING_CLEARING;
+import static com.vimp.constants.InvoiceStatus.AWAITING_GR;
+import static com.vimp.constants.InvoiceStatus.CLEARED;
+import static com.vimp.constants.InvoiceStatus.MIRO_IN_PROGRESS;
+import static com.vimp.constants.InvoiceStatus.MIRO_UNCERTAIN;
+import static com.vimp.constants.InvoiceStatus.PENDING_APPROVAL;
+import static com.vimp.constants.InvoiceStatus.PENDING_VERIFICATION;
+import static com.vimp.constants.InvoiceStatus.READY_FOR_VALIDATION;
+import static com.vimp.constants.InvoiceStatus.REJECTED;
+import static com.vimp.constants.InvoiceStatus.RETURNED;
+import static com.vimp.constants.InvoiceStatus.UPLOADED;
+import static com.vimp.constants.InvoiceStatus.VALIDATION_FAILED;
+import static com.vimp.constants.InvoiceStatus.VALIDATION_PASSED;
+import static com.vimp.constants.InvoiceStatus.ZPARK_CREATED;
+import static com.vimp.constants.InvoiceStatus.ZPARK_IN_PROGRESS;
+import static com.vimp.constants.InvoiceStatus.ZPARK_UNCERTAIN;
+import static com.vimp.constants.WorkflowAction.APPROVE;
+import static com.vimp.constants.WorkflowAction.CLEARING_CONFIRMED;
+import static com.vimp.constants.WorkflowAction.FAIL_VALIDATION;
+import static com.vimp.constants.WorkflowAction.GR_CONFIRMED;
+import static com.vimp.constants.WorkflowAction.GR_NOT_REQUIRED;
+import static com.vimp.constants.WorkflowAction.GR_PENDING;
+import static com.vimp.constants.WorkflowAction.INITIATE_ZPARK;
+import static com.vimp.constants.WorkflowAction.OVERRIDE_EXCEPTION;
+import static com.vimp.constants.WorkflowAction.PASS_VALIDATION;
+import static com.vimp.constants.WorkflowAction.POST_MIRO;
+import static com.vimp.constants.WorkflowAction.RECONCILED_FOUND;
+import static com.vimp.constants.WorkflowAction.RECONCILED_NOT_FOUND;
+import static com.vimp.constants.WorkflowAction.REJECT;
+import static com.vimp.constants.WorkflowAction.RETURN;
+import static com.vimp.constants.WorkflowAction.SAP_CONFIRMED;
+import static com.vimp.constants.WorkflowAction.SAP_REJECTED;
+import static com.vimp.constants.WorkflowAction.SAP_UNCERTAIN;
+import static com.vimp.constants.WorkflowAction.SUBMIT;
+import static com.vimp.constants.WorkflowAction.VERIFY;
+
+import java.util.EnumMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+import org.springframework.stereotype.Component;
+
+import com.vimp.config.WorkflowProperties;
+import com.vimp.constants.InvoiceStatus;
+import com.vimp.constants.Role;
+import com.vimp.constants.WorkflowAction;
+
+/**
+ * Allowed status transitions and who may trigger them, following the agreed VIMP workflow.
+ * Transitions with no roles are system-only (validation engine / SAP connector outcomes).
+ * Intended to move to a database table so the sequence can change without code changes.
+ */
+@Component
+public class TransitionTable {
+
+    public record Transition(InvoiceStatus to, Set<Role> allowedRoles) {
+
+        public boolean isSystemOnly() {
+            return allowedRoles.isEmpty();
+        }
+    }
+
+    private static final Role[] SITE = { Role.SITE_USER, Role.SITE_MANAGER };
+    private static final Role[] SYSTEM = {};
+
+    private final Map<InvoiceStatus, Map<WorkflowAction, Transition>> table = new EnumMap<>(InvoiceStatus.class);
+
+    public TransitionTable(WorkflowProperties workflow) {
+        Role[] zpark = workflow.zparkRoles().toArray(Role[]::new);
+        Role[] miro = workflow.miroRoles().toArray(Role[]::new);
+        // Any approver role may act at PENDING_APPROVAL; WorkflowService checks the current level's roles.
+        Role[] approvers = workflow.allApproverRoles().toArray(Role[]::new);
+        Role[] returners = java.util.stream.Stream.concat(workflow.allApproverRoles().stream(), java.util.stream.Stream.of(Role.PMO))
+                .distinct().toArray(Role[]::new);
+
+        // Phase 2-3: submit, then user verifies extracted fields
+        add(InvoiceStatus.DRAFT, SUBMIT, PENDING_VERIFICATION, SITE);
+        add(UPLOADED, SUBMIT, PENDING_VERIFICATION, SITE);
+        add(RETURNED, SUBMIT, PENDING_VERIFICATION, SITE);
+        add(VALIDATION_FAILED, SUBMIT, PENDING_VERIFICATION, SITE);
+        add(PENDING_VERIFICATION, VERIFY, READY_FOR_VALIDATION, SITE);
+
+        // Phase 4: matching against SAP PO / GR data
+        add(READY_FOR_VALIDATION, PASS_VALIDATION, VALIDATION_PASSED, SYSTEM);
+        add(READY_FOR_VALIDATION, FAIL_VALIDATION, VALIDATION_FAILED, SYSTEM);
+        add(VALIDATION_FAILED, OVERRIDE_EXCEPTION, VALIDATION_PASSED, Role.PMO);
+        add(VALIDATION_FAILED, REJECT, REJECTED, Role.PMO);
+
+        // Phase 5: Z PARK
+        add(VALIDATION_PASSED, INITIATE_ZPARK, ZPARK_IN_PROGRESS, zpark);
+        add(ZPARK_IN_PROGRESS, SAP_CONFIRMED, ZPARK_CREATED, SYSTEM);
+        add(ZPARK_IN_PROGRESS, SAP_UNCERTAIN, ZPARK_UNCERTAIN, SYSTEM);
+        add(ZPARK_IN_PROGRESS, SAP_REJECTED, VALIDATION_FAILED, SYSTEM);
+        add(ZPARK_UNCERTAIN, RECONCILED_FOUND, ZPARK_CREATED, SYSTEM);
+        add(ZPARK_UNCERTAIN, RECONCILED_NOT_FOUND, VALIDATION_PASSED, SYSTEM);
+
+        // Phase 6: goods receipt
+        add(ZPARK_CREATED, GR_CONFIRMED, PENDING_APPROVAL, SYSTEM);
+        add(ZPARK_CREATED, GR_NOT_REQUIRED, PENDING_APPROVAL, SYSTEM);
+        add(ZPARK_CREATED, GR_PENDING, AWAITING_GR, SYSTEM);
+        add(AWAITING_GR, GR_CONFIRMED, PENDING_APPROVAL, SYSTEM);
+
+        // Phase 7: approvals, then MIRO
+        add(PENDING_APPROVAL, APPROVE, APPROVED, approvers);
+        add(PENDING_APPROVAL, REJECT, REJECTED, approvers);
+        add(PENDING_APPROVAL, RETURN, RETURNED, returners);
+        add(APPROVED, POST_MIRO, MIRO_IN_PROGRESS, miro);
+        add(MIRO_IN_PROGRESS, SAP_CONFIRMED, AWAITING_CLEARING, SYSTEM);
+        add(MIRO_IN_PROGRESS, SAP_UNCERTAIN, MIRO_UNCERTAIN, SYSTEM);
+        add(MIRO_IN_PROGRESS, SAP_REJECTED, APPROVED, SYSTEM);
+        add(MIRO_UNCERTAIN, RECONCILED_FOUND, AWAITING_CLEARING, SYSTEM);
+        add(MIRO_UNCERTAIN, RECONCILED_NOT_FOUND, APPROVED, SYSTEM);
+
+        // Phase 8: clearing
+        add(AWAITING_CLEARING, CLEARING_CONFIRMED, CLEARED, SYSTEM);
+    }
+
+    public Optional<Transition> find(InvoiceStatus from, WorkflowAction action) {
+        return Optional.ofNullable(table.getOrDefault(from, Map.of()).get(action));
+    }
+
+    public Map<WorkflowAction, Transition> from(InvoiceStatus status) {
+        return table.getOrDefault(status, Map.of());
+    }
+
+    private void add(InvoiceStatus from, WorkflowAction action, InvoiceStatus to, Role... roles) {
+        table.computeIfAbsent(from, s -> new EnumMap<>(WorkflowAction.class))
+                .put(action, new Transition(to, Set.of(roles)));
+    }
+}
